@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# SQLite databases (rebuildable from harvested HTML)
+db/*.db
+db/*.db-journal
+db/*.db-wal
+db/*.db-shm
+
+# Harvested data (potentially copyrighted)
+data/raw/
+data/cases/scc/*.html
+data/cases/scc/*.json
+data/cases/fulltext/*.html
+data/cases/fulltext/*.json
+data/cases/headnotes/*.html
+data/cases/headnotes/*.json
+data/statutes/criminal_code/*.html
+data/statutes/criminal_code/*.json
+data/index/*.json
+
+# Embedding model cache
+models/
+.cache/
+
+# Secrets / env
+.env
+.env.local
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo

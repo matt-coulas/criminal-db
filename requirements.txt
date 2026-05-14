@@ -1,0 +1,16 @@
+# Runtime dependencies
+aiohttp>=3.9
+beautifulsoup4>=4.12
+lxml>=5.0
+click>=8.1
+rich>=13.0
+sqlite-vec>=0.1.6
+
+# Embeddings (optional but required for `criminal-db embed` / vector search)
+sentence-transformers>=2.3
+numpy>=1.24
+
+# Dev / tests
+pytest>=8.0
+pytest-asyncio>=0.23
+aioresponses>=0.7

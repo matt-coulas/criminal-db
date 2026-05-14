@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "criminal-db"
+version = "0.1.0"
+description = "Canadian criminal-law case database with hybrid FTS5 + vector search"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "criminal-db contributors" }]
+dependencies = [
+    "aiohttp>=3.9",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+    "click>=8.1",
+    "rich>=13.0",
+    "sqlite-vec>=0.1.6",
+    # Embedding model is optional at install time so the CLI is useful
+    # without a 130 MB download.  Install with:  pip install criminal-db[embed]
+]
+
+[project.optional-dependencies]
+embed = [
+    "sentence-transformers>=2.3",
+    "numpy>=1.24",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "aioresponses>=0.7",
+]
+
+[project.scripts]
+criminal-db = "criminal_db.cli:cli"
+
+[tool.setuptools.packages.find]
+include = ["criminal_db*"]
+exclude = ["tests*", "venv*", "data*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::DeprecationWarning:aiohttp.*",
+]
