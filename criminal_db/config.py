@@ -9,14 +9,25 @@ from typing import Optional
 # ── Paths ───────────────────────────────────────────────────────────────────
 
 BASE_DIR: Path = Path(__file__).resolve().parent.parent
-DATA_DIR: Path = BASE_DIR / "data"
+
+
+def _env_path(env_key: str, default_relative: str) -> Path:
+    """Resolve a directory from ``CRIMINAL_DB_*`` env or project default."""
+    raw = os.environ.get(env_key)
+    if raw:
+        return Path(raw).expanduser().resolve()
+    return (BASE_DIR / default_relative).resolve()
+
+
+DATA_DIR: Path = _env_path("CRIMINAL_DB_DATA_DIR", "data")
+DB_DIR: Path = _env_path("CRIMINAL_DB_DB_DIR", "db")
+MODELS_DIR: Path = _env_path("CRIMINAL_DB_MODELS_DIR", "models")
+
 RAW_DIR: Path = DATA_DIR / "raw"
 IMPORT_DIR: Path = DATA_DIR / "import"
 CASES_DIR: Path = DATA_DIR / "cases"
 CASES_MD_DIR: Path = CASES_DIR / "md"
 STATUTES_DIR: Path = DATA_DIR / "statutes"
-DB_DIR: Path = BASE_DIR / "db"
-MODELS_DIR: Path = BASE_DIR / "models"
 
 # The two SQLite databases below sit in DB_DIR.  They share the same schema;
 # `headnotes.db` stores only summary paragraphs, `fulltext.db` stores the

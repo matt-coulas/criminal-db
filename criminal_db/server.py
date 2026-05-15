@@ -45,15 +45,16 @@ class CriminalDbHandler(BaseHTTPRequestHandler):
         return json.loads(raw.decode("utf-8"))
 
     def do_GET(self) -> None:
-        if not self._auth_ok():
-            self._json_response(401, {"error": "unauthorized"})
-            return
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
         qs = parse_qs(parsed.query)
 
         if path == "/health":
             self._json_response(200, {"status": "ok"})
+            return
+
+        if not self._auth_ok():
+            self._json_response(401, {"error": "unauthorized"})
             return
 
         if path == "/search":

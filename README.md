@@ -25,6 +25,24 @@ source venv/bin/activate
 pip install -e ".[embed,dev]"
 ```
 
+### Docker Compose
+
+```bash
+cp .env.docker.example .env
+mkdir -p data db models
+docker compose up -d api
+docker compose run --rm tui
+```
+
+See [docs/DOCKER.md](docs/DOCKER.md) for volume paths, ports (`API_PORT`, `WEB_UI_PORT`), and the TUI.
+
+### Terminal UI (local)
+
+```bash
+pip install -e ".[embed,tui]"
+criminal-db-tui
+```
+
 Embeddings are optional — the CLI works fine for FTS5-only workflows without
 the `embed` extra.
 
