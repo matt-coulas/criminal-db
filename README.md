@@ -72,6 +72,19 @@ criminal-db --json search "voir dire" --type hybrid --limit 5
 database matching its parsed `corpus`. `search`, `embed`, and `analyze`
 (without `--db`) operate on **both** files and merge results.
 
+## Criminal Code (statutes)
+
+Parse offline HTML from [Justice Canada](https://laws-lois.justice.gc.ca/) into
+`db/statutes.db`:
+
+```bash
+# Save HTML under data/statutes/criminal_code/ then:
+criminal-db statutes parse
+criminal-db statutes get 8
+criminal-db search "unreasonable search" --scope statutes
+criminal-db --json statutes search "detention"
+```
+
 ## Criminal-law curation
 
 Cases are tagged `is_criminal` using court-code heuristics, caption patterns

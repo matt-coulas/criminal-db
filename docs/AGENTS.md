@@ -104,6 +104,13 @@ exclude:
 - Prefer `ingest` / `parse` on local HTML obtained lawfully.
 - Vector search requires a Python build with SQLite extension loading (see README).
 
-## Future: statutes
+## Criminal Code (statutes)
 
-Criminal Code ingestion (Phase 5) will use **Justice Canada HTML** under `data/statutes/criminal_code/` with a separate `statutes` CLI group.
+```bash
+criminal-db statutes parse data/statutes/criminal_code/
+criminal-db --json statutes get 8
+criminal-db --json search "unreasonable search" --scope statutes
+```
+
+Case search and statute search are separate corpora; use `--scope cases` (default)
+or `--scope statutes`.

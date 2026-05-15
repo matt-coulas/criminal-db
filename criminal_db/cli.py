@@ -119,19 +119,25 @@ def cli(ctx: click.Context, as_json: bool) -> None:
 @click.pass_context
 def init_cmd(ctx: click.Context) -> None:
     """Create databases, data directories, and an empty catalog manifest."""
+    from .statutes.schema import init_statutes_db
+
     headnotes, fulltext = init_default_databases()
+    statutes = init_statutes_db()
     ensure_catalog_dirs()
+    config.CRIMINAL_CODE_DIR.mkdir(parents=True, exist_ok=True)
     if _ctx_json(ctx):
         emit_json(
             {
                 "headnotes_db": str(headnotes),
                 "fulltext_db": str(fulltext),
+                "statutes_db": str(statutes),
                 "manifest": str(config.MANIFEST_PATH),
             }
         )
         return
     console.print(f"[green]ok[/]  headnotes db: {headnotes}")
     console.print(f"[green]ok[/]  fulltext  db: {fulltext}")
+    console.print(f"[green]ok[/]  statutes  db: {statutes}")
     console.print(f"[green]ok[/]  manifest:   {config.MANIFEST_PATH}")
 
 
@@ -696,6 +702,12 @@ def embed_cmd(
     is_flag=True,
     help="Include cases marked non-criminal by curation rules",
 )
+@click.option(
+    "--scope",
+    type=click.Choice(["cases", "statutes"], case_sensitive=False),
+    default="cases",
+    help="Search case law or Criminal Code sections",
+)
 @click.pass_context
 def search_cmd(
     ctx: click.Context,
@@ -708,10 +720,59 @@ def search_cmd(
     year: Optional[int],
     corpus: Optional[str],
     include_all: bool,
+    scope: str,
 ) -> None:
     """Search with FTS5, vector similarity, or hybrid fusion."""
-    backend = _open_backend(db_path)
     as_json = _ctx_json(ctx)
+    if scope.lower() == "statutes":
+        if search_type.lower() != "fts":
+            raise click.UsageError("statute search supports --type fts only")
+        from .statutes import StatutesDatabase
+
+        db = StatutesDatabase()
+        try:
+            results = db.search_fts(query, limit=limit)
+        finally:
+            db.close()
+        if as_json:
+            emit_json(
+                {
+                    "query": query,
+                    "scope": "statutes",
+                    "results": [
+                        {
+                            "section": r.section_number,
+                            "heading": r.heading,
+                            "text": r.text,
+                            "score": r.score,
+                        }
+                        for r in results
+                    ],
+                    "count": len(results),
+                }
+            )
+        elif not results:
+            console.print("[yellow]no results[/]")
+        else:
+            from rich.table import Table
+
+            table = Table()
+            table.add_column("s.")
+            table.add_column("heading")
+            table.add_column("score", justify="right")
+            table.add_column("excerpt")
+            for r in results:
+                excerpt = r.text if len(r.text) <= 160 else r.text[:157] + "..."
+                table.add_row(
+                    r.section_number,
+                    r.heading or "—",
+                    f"{r.score:.3f}",
+                    excerpt,
+                )
+            console.print(table)
+        return
+
+    backend = _open_backend(db_path)
     try:
         st = search_type.lower()
         common = dict(
@@ -956,6 +1017,149 @@ def analyze_cmd(ctx: click.Context, db_path: Optional[str]) -> None:
         print_analyze(stats, as_json=_ctx_json(ctx))
     finally:
         _close_backend(backend)
+
+
+# ── statutes (Criminal Code) ───────────────────────────────────────────────
+
+
+@cli.group()
+def statutes() -> None:
+    """Criminal Code sections from Justice Canada HTML."""
+
+
+@statutes.command("parse")
+@click.argument("paths", nargs=-1, type=click.Path(exists=True, dir_okay=True))
+@click.pass_context
+def statutes_parse_cmd(ctx: click.Context, paths: tuple[str, ...]) -> None:
+    """Parse Justice Canada HTML files into ``db/statutes.db``.
+
+    Save offline copies under ``data/statutes/criminal_code/`` then run
+    ``criminal-db statutes parse`` with no paths to ingest that directory.
+    """
+    from .catalog.ingest import collect_html_files
+    from .statutes import JusticeCanadaParser, StatutesDatabase
+
+    if paths:
+        roots = [Path(p) for p in paths]
+    else:
+        roots = [config.CRIMINAL_CODE_DIR]
+        if not roots[0].exists():
+            raise click.UsageError(
+                "no paths given and data/statutes/criminal_code/ is missing; "
+                "run criminal-db init and add HTML files"
+            )
+
+    db = StatutesDatabase()
+    total = 0
+    files_ok = 0
+    try:
+        for path in collect_html_files(roots):
+            html = path.read_text(encoding="utf-8", errors="replace")
+            sections = JusticeCanadaParser(html).parse()
+            if not sections:
+                if not _ctx_json(ctx):
+                    console.print(f"[yellow]skip[/] {path.name}: no sections")
+                continue
+            n = db.store_sections(sections)
+            total += n
+            files_ok += 1
+            if not _ctx_json(ctx):
+                console.print(f"[green]ok[/] {path.name}: {n} sections")
+    finally:
+        db.close()
+
+    if _ctx_json(ctx):
+        emit_json({"files": files_ok, "sections_stored": total})
+    else:
+        console.print(f"[green]ok[/] {total} sections from {files_ok} file(s)")
+
+
+@statutes.command("get")
+@click.argument("section")
+@click.pass_context
+def statutes_get_cmd(ctx: click.Context, section: str) -> None:
+    """Retrieve one Criminal Code section by number (e.g. ``8`` or ``s. 8``)."""
+    from .statutes import StatutesDatabase, normalize_section_ref
+
+    db = StatutesDatabase()
+    try:
+        row = db.get_section(section)
+    finally:
+        db.close()
+    ref = normalize_section_ref(section)
+    if row is None:
+        if _ctx_json(ctx):
+            emit_json({"error": "not_found", "section": ref})
+        else:
+            console.print(f"[yellow]not found:[/] s. {ref}")
+        raise SystemExit(1)
+    if _ctx_json(ctx):
+        emit_json(dict(row))
+    else:
+        console.print(f"[bold]s. {row['section_number']}[/] {row.get('heading') or ''}")
+        console.print(row["text"])
+
+
+@statutes.command("search")
+@click.argument("query")
+@click.option("-n", "--limit", default=config.DEFAULT_SEARCH_LIMIT, type=int)
+@click.pass_context
+def statutes_search_cmd(ctx: click.Context, query: str, limit: int) -> None:
+    """FTS search over Criminal Code section text."""
+    from .statutes import StatutesDatabase
+
+    db = StatutesDatabase()
+    try:
+        results = db.search_fts(query, limit=limit)
+    finally:
+        db.close()
+    if _ctx_json(ctx):
+        emit_json(
+            {
+                "query": query,
+                "results": [
+                    {
+                        "section": r.section_number,
+                        "heading": r.heading,
+                        "text": r.text,
+                        "score": r.score,
+                    }
+                    for r in results
+                ],
+                "count": len(results),
+            }
+        )
+        return
+    if not results:
+        console.print("[yellow]no results[/]")
+        return
+    from rich.table import Table
+
+    table = Table()
+    table.add_column("s.")
+    table.add_column("heading")
+    table.add_column("score", justify="right")
+    for r in results:
+        table.add_row(r.section_number, r.heading or "—", f"{r.score:.3f}")
+    console.print(table)
+
+
+@statutes.command("analyze")
+@click.pass_context
+def statutes_analyze_cmd(ctx: click.Context) -> None:
+    """Print Criminal Code corpus statistics."""
+    from .statutes import StatutesDatabase
+
+    db = StatutesDatabase()
+    try:
+        count = db.section_count()
+    finally:
+        db.close()
+    if _ctx_json(ctx):
+        emit_json({"sections": count, "db": str(config.STATUTES_DB)})
+    else:
+        console.print(f"[bold]sections:[/] {count}")
+        console.print(f"  db: {config.STATUTES_DB}")
 
 
 def main() -> None:  # pragma: no cover

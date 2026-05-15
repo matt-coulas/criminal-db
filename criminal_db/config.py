@@ -20,9 +20,13 @@ MODELS_DIR: Path = BASE_DIR / "models"
 # entire decision body.  Most users only need `fulltext.db`.
 HEADNOTES_DB: Path = DB_DIR / "headnotes.db"
 FULLTEXT_DB: Path = DB_DIR / "fulltext.db"
+STATUTES_DB: Path = DB_DIR / "statutes.db"
 
 # Default database used by the CLI when --db targets a single file.
 DEFAULT_DB: Path = FULLTEXT_DB
+
+# Offline Justice Canada Criminal Code HTML (laws-lois.justice.gc.ca).
+CRIMINAL_CODE_DIR: Path = STATUTES_DIR / "criminal_code"
 
 # Catalog manifest (ingest / harvest bookkeeping).
 INDEX_DIR: Path = DATA_DIR / "index"

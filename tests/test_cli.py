@@ -20,12 +20,14 @@ def test_init_creates_databases(tmp_path: Path, monkeypatch, fixtures_dir):
     monkeypatch.setattr("criminal_db.config.DB_DIR", tmp_path)
     monkeypatch.setattr("criminal_db.config.HEADNOTES_DB", tmp_path / "headnotes.db")
     monkeypatch.setattr("criminal_db.config.FULLTEXT_DB", tmp_path / "fulltext.db")
+    monkeypatch.setattr("criminal_db.config.STATUTES_DB", tmp_path / "statutes.db")
     monkeypatch.setattr("criminal_db.config.DEFAULT_DB", tmp_path / "fulltext.db")
 
     result = _invoke(["init"])
     assert result.exit_code == 0, result.output
     assert (tmp_path / "headnotes.db").exists()
     assert (tmp_path / "fulltext.db").exists()
+    assert (tmp_path / "statutes.db").exists()
 
 
 def test_parse_stores_case_in_db(tmp_path, fixtures_dir):
@@ -86,6 +88,7 @@ def test_help_renders():
         "embed",
         "search",
         "analyze",
+        "statutes",
     ):
         assert sub in result.output
 
