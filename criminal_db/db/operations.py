@@ -343,6 +343,29 @@ class Database:
         ]
         return case
 
+    def list_case_refs(
+        self,
+        *,
+        court: Optional[str] = None,
+        year: Optional[int] = None,
+        criminal_only: bool = True,
+    ) -> list[str]:
+        sql = ["SELECT canlii_ref FROM cases WHERE 1=1"]
+        params: list[Any] = []
+        if criminal_only:
+            sql.append("AND is_criminal = 1")
+        if court:
+            sql.append("AND court = ?")
+            params.append(court)
+        if year is not None:
+            sql.append("AND court_year = ?")
+            params.append(year)
+        sql.append("ORDER BY decided_date DESC, canlii_ref")
+        return [
+            str(r["canlii_ref"])
+            for r in self.conn.execute(" ".join(sql), params)
+        ]
+
     def case_count(self) -> int:
         return int(self.conn.execute("SELECT COUNT(*) FROM cases").fetchone()[0])
 

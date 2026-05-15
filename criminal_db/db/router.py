@@ -247,6 +247,57 @@ class DatabaseRouter:
             totals["embeddings"] += stats["embeddings"]
         return {"stores": stores, "total": totals}
 
+    def get_case(
+        self,
+        canlii_ref: str,
+        *,
+        criminal_only: bool = False,
+    ) -> Optional[tuple[dict, StoreName]]:
+        from ..retrieval import normalize_canlii_ref
+
+        ref = normalize_canlii_ref(canlii_ref)
+        for store in ("fulltext", "headnotes"):
+            case = self._db(store).get_case(ref)
+            if case is None:
+                continue
+            if criminal_only and not case.get("is_criminal"):
+                continue
+            return case, store
+        return None
+
+    def list_case_refs(
+        self,
+        *,
+        court: Optional[str] = None,
+        year: Optional[int] = None,
+        criminal_only: bool = True,
+    ) -> list[tuple[str, StoreName]]:
+        seen: dict[str, StoreName] = {}
+        for store in ("fulltext", "headnotes"):
+            for ref in self._db(store).list_case_refs(
+                court=court, year=year, criminal_only=criminal_only
+            ):
+                seen.setdefault(ref, store)
+        return sorted((ref, seen[ref]) for ref in seen)
+
+    def export_cases(
+        self,
+        *,
+        court: Optional[str] = None,
+        year: Optional[int] = None,
+        criminal_only: bool = True,
+    ) -> list[tuple[dict, StoreName]]:
+        from ..retrieval import normalize_canlii_ref
+
+        out: list[tuple[dict, StoreName]] = []
+        for ref, store in self.list_case_refs(
+            court=court, year=year, criminal_only=criminal_only
+        ):
+            case = self._db(store).get_case(normalize_canlii_ref(ref))
+            if case:
+                out.append((case, store))
+        return out
+
     def curate_all(self) -> dict[str, Any]:
         """Re-apply curation rules to every case in both databases."""
         from ..curation.apply import curate_database

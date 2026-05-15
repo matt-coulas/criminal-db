@@ -18,6 +18,7 @@ from .catalog import (
     ingest_paths,
 )
 from .cli_output import emit_json, print_analyze, print_search_results
+from .retrieval import case_to_export_json, format_case_text, normalize_canlii_ref
 from .db import Database, DatabaseRouter, init_default_databases
 from .db.schema import init_db
 from .curation.rules import classify_case
@@ -785,6 +786,128 @@ def search_cmd(
             "criminal_only": not include_all,
         },
     )
+
+
+# ── get ────────────────────────────────────────────────────────────────────
+
+
+@cli.command("get")
+@click.argument("citation")
+@click.option(
+    "--format",
+    "fmt",
+    type=click.Choice(["json", "text"], case_sensitive=False),
+    default="json",
+    help="Output shape (default json for agents)",
+)
+@click.option(
+    "--db",
+    "db_path",
+    default=None,
+    help="Single SQLite file (default: search both databases)",
+)
+@click.option(
+    "--include-all",
+    is_flag=True,
+    help="Allow retrieval of cases marked non-criminal",
+)
+@click.pass_context
+def get_cmd(
+    ctx: click.Context,
+    citation: str,
+    fmt: str,
+    db_path: Optional[str],
+    include_all: bool,
+) -> None:
+    """Retrieve a full case by neutral citation (e.g. ``2024 SCC 1``)."""
+    ref = normalize_canlii_ref(citation)
+    backend = _open_backend(db_path)
+    as_json = _ctx_json(ctx) or fmt.lower() == "json"
+    try:
+        if isinstance(backend, DatabaseRouter):
+            found = backend.get_case(ref, criminal_only=not include_all)
+        else:
+            case = backend.get_case(ref)
+            if case and (include_all or case.get("is_criminal")):
+                found = (case, "single")
+            else:
+                found = None
+        if found is None:
+            if as_json:
+                emit_json({"error": "not_found", "citation": ref})
+            else:
+                console.print(f"[yellow]not found:[/] {ref}")
+            raise SystemExit(1)
+        case, store = found
+        if as_json:
+            emit_json(case_to_export_json(case, store=None if store == "single" else store))
+            return
+        console.print(format_case_text(case, store=None if store == "single" else store))
+    finally:
+        _close_backend(backend)
+
+
+# ── export ─────────────────────────────────────────────────────────────────
+
+
+@cli.command("export")
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(dir_okay=False),
+    default="-",
+    help="Write JSON array to FILE (default stdout)",
+)
+@click.option("--db", "db_path", default=None)
+@click.option("--court", default=None)
+@click.option("--year", default=None, type=int)
+@click.option("--include-all", is_flag=True)
+@click.pass_context
+def export_cmd(
+    ctx: click.Context,
+    output: str,
+    db_path: Optional[str],
+    court: Optional[str],
+    year: Optional[int],
+    include_all: bool,
+) -> None:
+    """Export cases matching filters as a JSON array."""
+    import json
+    import sys
+
+    backend = _open_backend(db_path)
+    try:
+        criminal_only = not include_all
+        if isinstance(backend, DatabaseRouter):
+            rows = backend.export_cases(
+                court=court, year=year, criminal_only=criminal_only
+            )
+            payload = [
+                case_to_export_json(c, store=s) for c, s in rows
+            ]
+        else:
+            refs = backend.list_case_refs(
+                court=court, year=year, criminal_only=criminal_only
+            )
+            payload = []
+            for ref in refs:
+                case = backend.get_case(ref)
+                if case:
+                    payload.append(case_to_export_json(case))
+    finally:
+        _close_backend(backend)
+
+    text = json.dumps(
+        {"count": len(payload), "cases": payload},
+        ensure_ascii=False,
+        indent=2,
+    )
+    if output == "-":
+        sys.stdout.write(text + "\n")
+    else:
+        Path(output).write_text(text + "\n", encoding="utf-8")
+        if not _ctx_json(ctx):
+            console.print(f"[green]ok[/] wrote {len(payload)} cases to {output}")
 
 
 # ── analyze ────────────────────────────────────────────────────────────────

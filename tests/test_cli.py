@@ -79,6 +79,8 @@ def test_help_renders():
         "ingest",
         "index",
         "curate",
+        "get",
+        "export",
         "parse",
         "harvest",
         "embed",

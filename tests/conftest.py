@@ -42,3 +42,12 @@ def listing_html() -> str:
 def tmp_db(tmp_path: Path) -> Path:
     """Return a path for an isolated SQLite database file."""
     return tmp_path / "test.db"
+
+
+@pytest.fixture
+def dual_dbs(tmp_path: Path, monkeypatch):
+    ft = tmp_path / "fulltext.db"
+    hn = tmp_path / "headnotes.db"
+    monkeypatch.setattr("criminal_db.config.FULLTEXT_DB", ft)
+    monkeypatch.setattr("criminal_db.config.HEADNOTES_DB", hn)
+    return ft, hn

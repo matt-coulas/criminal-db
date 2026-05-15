@@ -58,15 +58,22 @@ criminal-db --json index
 criminal-db --json index --status failed
 ```
 
+## Retrieve full cases after search
+
+```bash
+criminal-db --json get "2024 SCC 1"
+criminal-db get "2024 SCC 1" --format text
+criminal-db --json export -o corpus.json
+```
+
 ## Python API (same semantics as CLI)
 
 ```python
-from criminal_db.db import DatabaseRouter
-from criminal_db.catalog import ingest_paths, Manifest
+from criminal_db.api import get_case, open_router, search
 
-router = DatabaseRouter()
-ingest_paths(["data/cases/fulltext"], router=router)
-hits = router.search_hybrid("unreasonable search", query_vector, limit=5)
+router = open_router()
+hits = search("unreasonable search", mode="hybrid", limit=5, router=router)
+full = get_case(hits[0].canlii_ref, router=router)
 router.close()
 ```
 
