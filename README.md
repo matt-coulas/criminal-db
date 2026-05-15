@@ -180,6 +180,11 @@ docs/
 - `paragraph_embeddings` — `sqlite-vec` `vec0` virtual table keyed by
   `paragraph_id`, dimension driven by `config.EMBEDDING_DIM`.
 
+## Corpus build
+
+See [docs/CORPUS.md](docs/CORPUS.md) for the full offline ingest workflow and
+`pytest tests/test_eval.py` for a small search regression suite.
+
 ## License
 
-MIT.
+MIT. See [LICENSE](LICENSE).

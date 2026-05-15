@@ -1,0 +1,30 @@
+[
+  {
+    "id": "charter-s8-thermal",
+    "query": "warrantless aerial thermal imaging",
+    "scope": "cases",
+    "expect_case_refs": ["2024 SCC 12"],
+    "min_hits": 1
+  },
+  {
+    "id": "impaired-breath",
+    "query": "breath analyser impaired driving",
+    "scope": "cases",
+    "expect_case_refs": ["2023 ONCA 712"],
+    "min_hits": 1
+  },
+  {
+    "id": "cc-s8-search",
+    "query": "unreasonable search or seizure",
+    "scope": "statutes",
+    "expect_sections": ["8"],
+    "min_hits": 1
+  },
+  {
+    "id": "cc-s9-detention",
+    "query": "arbitrarily detained",
+    "scope": "statutes",
+    "expect_sections": ["9"],
+    "min_hits": 1
+  }
+]
