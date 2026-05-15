@@ -36,7 +36,7 @@ CANLII_BASE = "https://www.canlii.org"
 # A single honest User-Agent.  Override per-deployment via env var.
 CANLII_USER_AGENT: str = os.environ.get(
     "CRIMINAL_DB_USER_AGENT",
-    "criminal-db/0.1 (+https://github.com/your-org/criminal-db; research)",
+    "criminal-db/0.1 (+https://github.com/matt-coulas/criminal-db; research)",
 )
 
 # Polite delays.  ≥5s minimum is the lower bound; we add jitter on top.

@@ -3,7 +3,7 @@
 A local-first Canadian criminal-law case database with hybrid full-text (FTS5)
 and semantic (sqlite-vec) search over paragraph-level case content.
 
-> **Status:** under active development. Schema and CLI may change.
+> **Status:** beta. Case + statute schemas and CLI may still evolve.
 
 ## What it does
 
