@@ -101,8 +101,11 @@ exclude:
 ## Constraints for agents
 
 - Do **not** disable `CRIMINAL_DB_RESPECT_ROBOTS=0` to bulk-scrape CanLII.
-- Prefer `ingest` / `parse` on local HTML obtained lawfully.
+- Prefer `ingest` / `import` / `parse` on local files obtained lawfully.
+- Do **not** upload `db/*.db`, bulk `export` JSON, or `export-md` trees to public
+  repos, datasets, or shared drives without permission for every judgment.
 - Vector search requires a Python build with SQLite extension loading (see README).
+- Content rights: [COPYRIGHT_AND_REDISTRIBUTION.md](COPYRIGHT_AND_REDISTRIBUTION.md).
 
 ## Criminal Code (statutes)
 

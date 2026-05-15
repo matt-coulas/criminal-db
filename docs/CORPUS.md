@@ -82,5 +82,6 @@ Uses synthetic fixtures only; extend `tests/eval/queries.json` as your corpus gr
 criminal-db export -o snapshot/cases.json
 ```
 
-JSON array suitable for backup or external tooling (not for redistribution of
-third-party HTML without permission).
+JSON array suitable for **private backup or migration** on your machine. Do not
+publish exports as an open dataset without rights to the underlying works. See
+[COPYRIGHT_AND_REDISTRIBUTION.md](COPYRIGHT_AND_REDISTRIBUTION.md).

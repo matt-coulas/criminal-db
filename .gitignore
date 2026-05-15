@@ -26,14 +26,16 @@ db/*.db-journal
 db/*.db-wal
 db/*.db-shm
 
-# Harvested data (potentially copyrighted)
+# Harvested / ingested content (third-party copyright — see docs/COPYRIGHT_AND_REDISTRIBUTION.md)
 data/raw/
+data/import/
 data/cases/scc/*.html
 data/cases/scc/*.json
 data/cases/fulltext/*.html
 data/cases/fulltext/*.json
 data/cases/headnotes/*.html
 data/cases/headnotes/*.json
+data/cases/md/
 data/statutes/criminal_code/*.html
 data/statutes/criminal_code/*.json
 data/index/*.json

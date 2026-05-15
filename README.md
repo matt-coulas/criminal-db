@@ -132,6 +132,9 @@ the `CRIMINAL_DB_USER_AGENT` env var), a 5-second minimum delay between
 requests, and a single concurrent connection. If you want to harvest at
 larger scale, please use the official CanLII API.
 
+Full policy for case text, exports, and hosting:
+[docs/COPYRIGHT_AND_REDISTRIBUTION.md](docs/COPYRIGHT_AND_REDISTRIBUTION.md).
+
 ## Search semantics
 
 `criminal-db search` joins user tokens with `OR` by default and lets the
@@ -166,6 +169,7 @@ db/
     headnotes.db
 docs/
     AGENTS.md             # LLM / automation guide
+    COPYRIGHT_AND_REDISTRIBUTION.md
 ```
 
 ## Schema (high level)
@@ -186,6 +190,13 @@ See [docs/CORPUS.md](docs/CORPUS.md) for the full offline ingest workflow,
 [docs/VALIDATION.md](docs/VALIDATION.md) for parser QA on saved HTML, and
 `pytest tests/test_eval.py` for a small search regression suite.
 
+## Copyright and redistribution
+
+- **Software:** MIT — [LICENSE](LICENSE).
+- **Case law and exports:** not included in this repo. You are responsible for
+  lawful sources and for how you use `export`, `export-md`, `get`, and any
+  hosted API. See [docs/COPYRIGHT_AND_REDISTRIBUTION.md](docs/COPYRIGHT_AND_REDISTRIBUTION.md).
+
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT applies to the **criminal-db source code** only. See [LICENSE](LICENSE).

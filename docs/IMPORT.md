@@ -2,6 +2,10 @@
 
 Use `criminal-db import` when you have saved HTML or PDF decisions and cannot (or should not) harvest from CanLII. Files are staged under `data/import/`, parsed, stored via the dual-database router, and tracked in `data/index/manifest.json`.
 
+**Copyright:** importing a file does not grant redistribution rights. You must have
+a lawful basis for each source (court copy, licensed PDF, permitted save, etc.).
+See [COPYRIGHT_AND_REDISTRIBUTION.md](COPYRIGHT_AND_REDISTRIBUTION.md).
+
 ## Setup
 
 ```bash
