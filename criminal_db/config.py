@@ -10,7 +10,9 @@ from pathlib import Path
 BASE_DIR: Path = Path(__file__).resolve().parent.parent
 DATA_DIR: Path = BASE_DIR / "data"
 RAW_DIR: Path = DATA_DIR / "raw"
+IMPORT_DIR: Path = DATA_DIR / "import"
 CASES_DIR: Path = DATA_DIR / "cases"
+CASES_MD_DIR: Path = CASES_DIR / "md"
 STATUTES_DIR: Path = DATA_DIR / "statutes"
 DB_DIR: Path = BASE_DIR / "db"
 MODELS_DIR: Path = BASE_DIR / "models"

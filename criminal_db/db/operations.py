@@ -151,7 +151,7 @@ class Database:
 
     # ── case insertion ──────────────────────────────────────────────────────
 
-    def store_case(self, case_json: dict) -> int:
+    def store_case(self, case_json: dict, *, write_md: bool = True) -> int:
         """Insert (or replace) a parsed case + its paragraphs.
 
         ``case_json`` must follow the structure produced by
@@ -279,6 +279,18 @@ class Database:
                 )
 
             self.apply_curation_for_case(case_id, case_json)
+
+        if write_md:
+            from ..catalog.markdown_export import write_case_markdown_file
+
+            stored = self.get_case(canlii_ref)
+            if stored:
+                store_label = (
+                    "headnotes"
+                    if stored.get("corpus") == "headnote"
+                    else "fulltext"
+                )
+                write_case_markdown_file(stored, store=store_label)
 
         return case_id
 

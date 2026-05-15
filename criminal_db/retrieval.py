@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Optional
 
 
@@ -36,6 +37,70 @@ def format_case_text(case: dict, *, store: Optional[str] = None) -> str:
         lines.append(prefix + (p.get("text") or ""))
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def format_case_markdown(case: dict, *, store: Optional[str] = None) -> str:
+    """Render a case as Markdown with YAML front matter and paragraph body."""
+    ref = case.get("canlii_ref") or "UNKNOWN"
+    meta: dict[str, object] = {
+        "canlii_ref": ref,
+        "neutral_citation": case.get("neutral_citation"),
+        "reporter_citation": case.get("reporter_citation"),
+        "court": case.get("court"),
+        "court_year": case.get("court_year"),
+        "decided_date": case.get("decided_date"),
+        "corpus": case.get("corpus"),
+        "is_headnote_only": bool(case.get("is_headnote_only")),
+        "is_criminal": case.get("is_criminal"),
+        "exclusion_reason": case.get("exclusion_reason"),
+        "source_url": case.get("source_url"),
+    }
+    if store:
+        meta["store"] = store
+    judges = case.get("judges")
+    if judges:
+        meta["judges"] = judges
+
+    fm_lines = ["---"]
+    for key, val in meta.items():
+        if val is None or val == "":
+            continue
+        if key == "judges":
+            fm_lines.append(
+                f"judges: {json.dumps(val, ensure_ascii=False)}"
+            )
+        elif isinstance(val, bool):
+            fm_lines.append(f"{key}: {'true' if val else 'false'}")
+        elif isinstance(val, int):
+            fm_lines.append(f"{key}: {val}")
+        else:
+            escaped = str(val).replace("\\", "\\\\").replace('"', '\\"')
+            fm_lines.append(f'{key}: "{escaped}"')
+    fm_lines.append("---")
+
+    body: list[str] = [fm_lines[0]]
+    body.extend(fm_lines[1:])
+    body.append("")
+    body.append(f"# {ref}")
+    body.append("")
+    court = case.get("court") or "—"
+    date = case.get("decided_date") or "—"
+    body.append(f"*{court}* · {date}")
+    body.append("")
+
+    for p in case.get("paragraphs") or []:
+        num = p.get("paragraph_num")
+        heading = p.get("heading")
+        if heading:
+            body.append(f"## {heading}")
+            body.append("")
+        prefix = f"**[{num}]** " if num is not None else ""
+        text = (p.get("text") or "").strip()
+        if text:
+            body.append(prefix + text)
+            body.append("")
+
+    return "\n".join(body).rstrip() + "\n"
 
 
 def case_to_export_json(case: dict, *, store: Optional[str] = None) -> dict:

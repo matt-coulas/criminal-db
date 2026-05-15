@@ -11,7 +11,7 @@ from typing import Callable, Optional
 from ..curation.rules import classify_case
 from ..db.router import DatabaseRouter
 from ..harvester.parser import CanLIIParser, export_case_to_json
-from .manifest import CatalogEntry, Manifest, ensure_catalog_dirs
+from .manifest import CatalogEntry, Manifest, SourceType, ensure_catalog_dirs
 
 
 def _sha256_file(path: Path) -> str:
@@ -38,7 +38,8 @@ def collect_html_files(paths: list[Path]) -> list[Path]:
         p = root.resolve()
         if p.is_dir():
             files.extend(sorted(p.rglob("*.html")))
-        elif p.suffix.lower() == ".html":
+            files.extend(sorted(p.rglob("*.htm")))
+        elif p.suffix.lower() in {".html", ".htm"}:
             files.append(p)
     # Stable order, skip listing index pages by convention.
     return [f for f in files if f.name != "_index.html"]
@@ -69,7 +70,9 @@ def ingest_paths(
     manifest: Optional[Manifest] = None,
     force: bool = False,
     criminal_only: bool = False,
+    write_md: bool = True,
     on_progress: Optional[Callable[[CatalogEntry], None]] = None,
+    source_type: Optional[SourceType] = None,
 ) -> IngestReport:
     """Parse HTML files, store via ``router``, and update ``manifest``."""
     ensure_catalog_dirs()
@@ -99,6 +102,14 @@ def ingest_paths(
             status="pending",
             sha256=digest,
             fetched_at=existing.fetched_at if existing else None,
+            source_type=(
+                source_type
+                if source_type is not None
+                else (existing.source_type if existing else None)
+            ),
+            original_filename=(
+                existing.original_filename if existing else path.name
+            ),
         )
         try:
             html = path.read_text(encoding="utf-8", errors="replace")
@@ -126,7 +137,7 @@ def ingest_paths(
                     entry.parse_error = decision.reason
                     report.excluded += 1
                 else:
-                    case_id, store = router.store_case(payload)
+                    case_id, store = router.store_case(payload, write_md=write_md)
                     entry.status = "ok"
                     entry.canlii_ref = case.canlii_ref
                     entry.corpus = case.corpus

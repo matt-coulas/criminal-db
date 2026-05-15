@@ -15,8 +15,10 @@ from .catalog import (
     IngestReport,
     Manifest,
     ensure_catalog_dirs,
+    import_paths,
     ingest_paths,
 )
+from .catalog.markdown_export import export_markdown
 from .cli_output import emit_json, print_analyze, print_search_results
 from .retrieval import case_to_export_json, format_case_text, normalize_canlii_ref
 from .db import Database, DatabaseRouter, init_default_databases
@@ -132,6 +134,8 @@ def init_cmd(ctx: click.Context) -> None:
                 "fulltext_db": str(fulltext),
                 "statutes_db": str(statutes),
                 "manifest": str(config.MANIFEST_PATH),
+                "import_dir": str(config.IMPORT_DIR),
+                "cases_md_dir": str(config.CASES_MD_DIR),
             }
         )
         return
@@ -139,6 +143,49 @@ def init_cmd(ctx: click.Context) -> None:
     console.print(f"[green]ok[/]  fulltext  db: {fulltext}")
     console.print(f"[green]ok[/]  statutes  db: {statutes}")
     console.print(f"[green]ok[/]  manifest:   {config.MANIFEST_PATH}")
+    console.print(f"[green]ok[/]  import dir: {config.IMPORT_DIR}")
+    console.print(f"[green]ok[/]  cases md:   {config.CASES_MD_DIR}")
+
+
+# ── validate ───────────────────────────────────────────────────────────────
+
+
+@cli.command("validate")
+@click.argument("paths", nargs=-1, type=click.Path(exists=True, dir_okay=True))
+@click.pass_context
+def validate_cmd(ctx: click.Context, paths: tuple[str, ...]) -> None:
+    """Dry-run parser QA on HTML files (no database writes).
+
+    Use on saved CanLII or import HTML before ``ingest`` / ``import``.
+    """
+    from .validate import validate_paths
+
+    if not paths:
+        raise click.UsageError("at least one path is required")
+    results = validate_paths([Path(p) for p in paths])
+    if _ctx_json(ctx):
+        emit_json(
+            {
+                "count": len(results),
+                "ok": sum(1 for r in results if r.ok),
+                "failed": sum(1 for r in results if not r.ok),
+                "files": [r.to_dict() for r in results],
+            }
+        )
+        if any(not r.ok for r in results):
+            raise SystemExit(1)
+        return
+    for r in results:
+        flag = "[green]ok[/]" if r.ok else "[red]fail[/]"
+        console.print(
+            f"{flag} {r.path}: {r.canlii_ref} ({r.paragraph_count} paras, {r.corpus})"
+        )
+        for issue in r.issues:
+            colour = "red" if issue.level == "error" else "yellow"
+            console.print(f"  [{colour}]{issue.code}[/] {issue.message}")
+    failed = sum(1 for r in results if not r.ok)
+    if failed:
+        raise SystemExit(1)
 
 
 # ── ingest ─────────────────────────────────────────────────────────────────
@@ -152,12 +199,18 @@ def init_cmd(ctx: click.Context) -> None:
     is_flag=True,
     help="Skip cases that fail criminal-law curation rules",
 )
+@click.option(
+    "--no-md",
+    is_flag=True,
+    help="Do not write data/cases/md/*.md files when storing cases",
+)
 @click.pass_context
 def ingest_cmd(
     ctx: click.Context,
     paths: tuple[str, ...],
     force: bool,
     criminal_only: bool,
+    no_md: bool,
 ) -> None:
     """Parse HTML under PATHS and store cases via the dual-database router.
 
@@ -182,7 +235,75 @@ def ingest_cmd(
     router = DatabaseRouter()
     try:
         report = ingest_paths(
-            roots, router=router, force=force, criminal_only=criminal_only
+            roots,
+            router=router,
+            force=force,
+            criminal_only=criminal_only,
+            write_md=not no_md,
+        )
+    finally:
+        router.close()
+
+    if _ctx_json(ctx):
+        emit_json(report.to_dict())
+        return
+    parts = [
+        f"[green]{report.ok} ok[/]",
+        f"[yellow]{report.skipped} skipped[/]",
+        f"[red]{report.failed} failed[/]",
+    ]
+    if report.excluded:
+        parts.append(f"[dim]{report.excluded} excluded (non-criminal)[/]")
+    console.print(", ".join(parts))
+
+
+# ── import ─────────────────────────────────────────────────────────────────
+
+
+@cli.command("import")
+@click.argument("paths", nargs=-1, type=click.Path(exists=True, dir_okay=True))
+@click.option("--force", is_flag=True, help="Re-parse even when SHA-256 is unchanged")
+@click.option(
+    "--criminal-only",
+    is_flag=True,
+    help="Skip cases that fail criminal-law curation rules",
+)
+@click.option(
+    "--no-md",
+    is_flag=True,
+    help="Do not write data/cases/md/*.md files when storing cases",
+)
+@click.pass_context
+def import_cmd(
+    ctx: click.Context,
+    paths: tuple[str, ...],
+    force: bool,
+    criminal_only: bool,
+    no_md: bool,
+) -> None:
+    """Import saved HTML or PDF decisions (no CanLII scraping).
+
+    With no PATHS, imports everything under ``data/import/`` (html/ and pdf/).
+    Originals are staged under ``data/import/`` when given paths elsewhere.
+    """
+    if paths:
+        roots = [Path(p) for p in paths]
+    else:
+        roots = [config.IMPORT_DIR]
+        if not roots[0].exists():
+            raise click.UsageError(
+                "no paths given and data/import/ does not exist; "
+                "run `criminal-db init` or pass explicit PATHS"
+            )
+
+    router = DatabaseRouter()
+    try:
+        report = import_paths(
+            roots,
+            router=router,
+            force=force,
+            criminal_only=criminal_only,
+            write_md=not no_md,
         )
     finally:
         router.close()
@@ -319,6 +440,11 @@ def curate_cmd(ctx: click.Context, db_path: Optional[str]) -> None:
     is_flag=True,
     help="Do not store cases that fail criminal-law curation rules",
 )
+@click.option(
+    "--no-md",
+    is_flag=True,
+    help="Do not write data/cases/md/*.md files when storing cases",
+)
 @click.pass_context
 def parse_cmd(
     ctx: click.Context,
@@ -327,6 +453,7 @@ def parse_cmd(
     no_store: bool,
     catalog: bool,
     criminal_only: bool,
+    no_md: bool,
 ) -> None:
     """Parse CanLII HTML files that you've already downloaded."""
     if not paths:
@@ -397,10 +524,13 @@ def parse_cmd(
                             f"[dim]exclude[/] {path.name}: {decision.reason}"
                         )
                     continue
+                write_md = not no_md
                 if isinstance(backend, DatabaseRouter):
-                    case_id, store = backend.store_case(payload)
+                    case_id, store = backend.store_case(
+                        payload, write_md=write_md
+                    )
                 else:
-                    case_id = backend.store_case(payload)
+                    case_id = backend.store_case(payload, write_md=write_md)
                     store = case.corpus
                 if catalog:
                     _manifest_record_html(
@@ -473,6 +603,11 @@ def parse_cmd(
     help="Treat URL as a listing page and follow each case link",
 )
 @click.option("--limit", default=10, type=int, help="Max cases from a listing")
+@click.option(
+    "--no-md",
+    is_flag=True,
+    help="Do not write data/cases/md/*.md files when storing cases",
+)
 @click.pass_context
 def harvest_cmd(
     ctx: click.Context,
@@ -481,6 +616,7 @@ def harvest_cmd(
     save_html: Optional[str],
     listing: bool,
     limit: int,
+    no_md: bool,
 ) -> None:
     """Fetch one or more cases from CanLII (subject to robots.txt)."""
     asyncio.run(
@@ -490,6 +626,7 @@ def harvest_cmd(
             save_html=Path(save_html) if save_html else None,
             listing=listing,
             limit=limit,
+            write_md=not no_md,
             as_json=_ctx_json(ctx),
         )
     )
@@ -502,6 +639,7 @@ async def _run_harvest(
     save_html: Optional[Path],
     listing: bool,
     limit: int,
+    write_md: bool = True,
     as_json: bool,
 ) -> None:
     backend = _open_backend(db_path)
@@ -510,7 +648,11 @@ async def _run_harvest(
         async with CanLIIFetcher() as fetcher:
             if not listing:
                 row = await _harvest_single(
-                    fetcher, url, backend=backend, save_html=save_html
+                    fetcher,
+                    url,
+                    backend=backend,
+                    save_html=save_html,
+                    write_md=write_md,
                 )
                 if row:
                     harvested.append(row)
@@ -534,7 +676,11 @@ async def _run_harvest(
                     console.print(f"  found [bold]{len(links)}[/] case link(s)")
                 for case_url in links:
                     row = await _harvest_single(
-                        fetcher, case_url, backend=backend, save_html=save_html
+                        fetcher,
+                        case_url,
+                        backend=backend,
+                        save_html=save_html,
+                        write_md=write_md,
                     )
                     if row:
                         harvested.append(row)
@@ -551,6 +697,7 @@ async def _harvest_single(
     *,
     backend: Backend,
     save_html: Optional[Path],
+    write_md: bool = True,
 ) -> Optional[dict]:
     console.print(f"[cyan]fetch[/] {url}")
     result = await fetcher.fetch(url)
@@ -569,10 +716,11 @@ async def _harvest_single(
         html_path = save_html / f"{safe}.html"
         html_path.write_text(result.html, encoding="utf-8")
 
+    payload = export_case_to_json(case)
     if isinstance(backend, DatabaseRouter):
-        case_id, store = backend.store_case(export_case_to_json(case))
+        case_id, store = backend.store_case(payload, write_md=write_md)
     else:
-        case_id = backend.store_case(export_case_to_json(case))
+        case_id = backend.store_case(payload, write_md=write_md)
         store = case.corpus
 
     if html_path is not None:
@@ -969,6 +1117,47 @@ def export_cmd(
         Path(output).write_text(text + "\n", encoding="utf-8")
         if not _ctx_json(ctx):
             console.print(f"[green]ok[/] wrote {len(payload)} cases to {output}")
+
+
+@cli.command("export-md")
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(file_okay=False, dir_okay=True),
+    default=None,
+    help=f"Directory for .md files (default: {config.CASES_MD_DIR})",
+)
+@click.option("--db", "db_path", default=None)
+@click.option("--court", default=None)
+@click.option("--year", default=None, type=int)
+@click.option("--include-all", is_flag=True)
+@click.pass_context
+def export_md_cmd(
+    ctx: click.Context,
+    output: Optional[str],
+    db_path: Optional[str],
+    court: Optional[str],
+    year: Optional[int],
+    include_all: bool,
+) -> None:
+    """Export cases from the database(s) as one Markdown file per decision."""
+    out_dir = Path(output) if output else config.CASES_MD_DIR
+    backend = _open_backend(db_path)
+    try:
+        count = export_markdown(
+            backend,
+            out_dir,
+            court=court,
+            year=year,
+            criminal_only=not include_all,
+        )
+    finally:
+        _close_backend(backend)
+
+    if _ctx_json(ctx):
+        emit_json({"count": count, "output_dir": str(out_dir)})
+        return
+    console.print(f"[green]ok[/] wrote {count} markdown file(s) to {out_dir}")
 
 
 # ── analyze ────────────────────────────────────────────────────────────────

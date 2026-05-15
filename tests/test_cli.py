@@ -78,7 +78,9 @@ def test_help_renders():
     assert result.exit_code == 0
     for sub in (
         "init",
+        "validate",
         "ingest",
+        "import",
         "index",
         "curate",
         "get",

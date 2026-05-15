@@ -72,12 +72,14 @@ class DatabaseRouter:
         store: StoreName = "headnotes" if corpus == "headnote" else "fulltext"
         return self._db(store)
 
-    def store_case(self, case_json: dict) -> tuple[int, StoreName]:
+    def store_case(
+        self, case_json: dict, *, write_md: bool = True
+    ) -> tuple[int, StoreName]:
         """Store a parsed case in the database matching ``meta.corpus``."""
         meta = case_json.get("meta") or {}
         corpus = meta.get("corpus") or "fulltext"
         store: StoreName = "headnotes" if corpus == "headnote" else "fulltext"
-        case_id = self._db(store).store_case(case_json)
+        case_id = self._db(store).store_case(case_json, write_md=write_md)
         return case_id, store
 
     def stores_for_corpus_filter(

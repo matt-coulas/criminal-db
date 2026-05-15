@@ -12,6 +12,7 @@ from .. import config
 
 EntryStatus = Literal["pending", "ok", "failed", "skipped", "excluded"]
 StoreName = Literal["fulltext", "headnotes"]
+SourceType = Literal["html", "pdf"]
 
 
 def _now_iso() -> str:
@@ -25,8 +26,12 @@ def ensure_catalog_dirs() -> None:
     config.INDEX_DIR.mkdir(parents=True, exist_ok=True)
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
     config.RAW_DIR.mkdir(parents=True, exist_ok=True)
+    config.IMPORT_DIR.mkdir(parents=True, exist_ok=True)
+    (config.IMPORT_DIR / "html").mkdir(parents=True, exist_ok=True)
+    (config.IMPORT_DIR / "pdf").mkdir(parents=True, exist_ok=True)
     (config.CASES_DIR / "fulltext").mkdir(parents=True, exist_ok=True)
     (config.CASES_DIR / "headnotes").mkdir(parents=True, exist_ok=True)
+    config.CASES_MD_DIR.mkdir(parents=True, exist_ok=True)
     if not config.MANIFEST_PATH.exists():
         Manifest().save()
     ensure_overrides_template()
@@ -47,6 +52,8 @@ class CatalogEntry:
     case_id: Optional[int] = None
     store: Optional[StoreName] = None
     source_url: Optional[str] = None
+    source_type: Optional[SourceType] = None
+    original_filename: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {k: v for k, v in asdict(self).items() if v is not None}
@@ -65,6 +72,8 @@ class CatalogEntry:
             case_id=data.get("case_id"),
             store=data.get("store"),
             source_url=data.get("source_url"),
+            source_type=data.get("source_type"),
+            original_filename=data.get("original_filename"),
         )
 
 
