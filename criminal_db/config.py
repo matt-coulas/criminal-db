@@ -21,8 +21,12 @@ MODELS_DIR: Path = BASE_DIR / "models"
 HEADNOTES_DB: Path = DB_DIR / "headnotes.db"
 FULLTEXT_DB: Path = DB_DIR / "fulltext.db"
 
-# Default database used by the CLI when no --db is supplied.
+# Default database used by the CLI when --db targets a single file.
 DEFAULT_DB: Path = FULLTEXT_DB
+
+# Catalog manifest (ingest / harvest bookkeeping).
+INDEX_DIR: Path = DATA_DIR / "index"
+MANIFEST_PATH: Path = INDEX_DIR / "manifest.json"
 
 # ── Harvester ───────────────────────────────────────────────────────────────
 

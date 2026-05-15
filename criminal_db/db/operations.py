@@ -50,6 +50,8 @@ class SearchResult:
     text: str
     score: float
     source: str  # 'fts' | 'vector' | 'hybrid'
+    store: str = "fulltext"  # physical db: 'fulltext' | 'headnotes'
+    corpus: Optional[str] = None  # case corpus: 'fulltext' | 'headnote'
 
 
 # ── FTS5 query sanitisation ─────────────────────────────────────────────────

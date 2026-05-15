@@ -30,24 +30,56 @@ the `embed` extra.
 ## Quick start
 
 ```bash
-# Initialise the SQLite databases
+# Initialise databases, data/ layout, and catalog manifest
 criminal-db init
 
-# Parse a CanLII HTML file that you've already downloaded (offline)
+# Offline workflow (recommended): copy HTML into data/cases/… then ingest
+cp my-case.html data/cases/fulltext/
+criminal-db ingest                    # or: criminal-db ingest data/cases/fulltext
+
+# Or parse individual files (routes headnotes vs fulltext automatically)
 criminal-db parse path/to/case.html
 
-# Harvest a single CanLII case URL (respects ~5s delay, single User-Agent)
-criminal-db harvest https://www.canlii.org/en/ca/scc/doc/2024/2024scc1/2024scc1.html
+# Harvest (only when permitted; blocked by CanLII robots.txt by default)
+criminal-db harvest URL --save-html data/raw
 
-# Compute embeddings for any paragraphs that don't have one yet
+# Embeddings + search (searches both db/fulltext.db and db/headnotes.db)
 criminal-db embed
-
-# Search
 criminal-db search "section 8 charter unreasonable search" --type hybrid
-criminal-db search "voir dire admissibility" --court SCC --year 2024
 
-# Stats
-criminal-db analyze
+# Catalog and stats
+criminal-db index                     # list manifest entries
+criminal-db analyze                   # per-store + total counts
+```
+
+### LLM / agent use
+
+Pass `--json` for machine-readable stdout (see [docs/AGENTS.md](docs/AGENTS.md)):
+
+```bash
+criminal-db --json ingest
+criminal-db --json search "voir dire" --type hybrid --limit 5
+```
+
+## Dual databases
+
+| Database | Path | Contents |
+|----------|------|----------|
+| Full text | `db/fulltext.db` | Numbered decision paragraphs |
+| Headnotes | `db/headnotes.db` | Summary / headnote paragraphs |
+
+`parse`, `ingest`, and `harvest` (without `--db`) store each case in the
+database matching its parsed `corpus`. `search`, `embed`, and `analyze`
+(without `--db`) operate on **both** files and merge results.
+
+## Catalog (`data/index/manifest.json`)
+
+The manifest tracks every HTML source: SHA-256, parse status, target store, and
+`case_id`. Re-running `ingest` skips unchanged files unless you pass `--force`.
+
+```bash
+criminal-db index --status ok
+criminal-db index --status failed
 ```
 
 ## CanLII Terms of Use and robots.txt
@@ -88,19 +120,27 @@ explicit `AND` / `OR` / `NOT` / `NEAR` operators in the query string.
 
 ```
 criminal_db/
-    config.py             # Single source of truth for paths + settings
     cli.py                # Click CLI (`criminal-db ...`)
+    cli_output.py         # Rich tables + JSON helpers
+    config.py             # Paths and tunables
     embedding.py          # Sentence-transformer wrapper
+    catalog/
+        manifest.py       # data/index/manifest.json
+        ingest.py         # Batch ingest + SHA-256 skip
     db/
-        schema.py         # Schema DDL (cases, paragraphs, FTS5, vec0)
-        operations.py     # Database facade
-    harvester/
-        fetcher.py        # aiohttp HTTP client with retries
-        parser.py         # CanLII HTML -> CaseData
-        listing.py        # Extract case URLs from listing pages
-tests/
-    fixtures/             # Saved CanLII-like HTML for offline testing
-    test_*.py             # pytest suite
+        schema.py         # DDL (cases, paragraphs, FTS5, vec0)
+        operations.py     # Single-database facade
+        router.py         # Dual-DB routing + unified search
+    harvester/            # CanLII fetch + parse + listing links
+data/
+    cases/{fulltext,headnotes}/   # Offline HTML (gitignored)
+    index/manifest.json           # Ingest catalog
+    raw/                          # Optional harvest output
+db/
+    fulltext.db
+    headnotes.db
+docs/
+    AGENTS.md             # LLM / automation guide
 ```
 
 ## Schema (high level)

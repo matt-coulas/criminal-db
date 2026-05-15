@@ -3,17 +3,22 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 import click
 from rich.console import Console
-from rich.table import Table
 
 from . import config
-from .db import Database, init_default_databases
+from .catalog import (
+    CatalogEntry,
+    IngestReport,
+    Manifest,
+    ensure_catalog_dirs,
+    ingest_paths,
+)
+from .cli_output import emit_json, print_analyze, print_search_results
+from .db import Database, DatabaseRouter, init_default_databases
 from .db.schema import init_db
 from .harvester import (
     CanLIIFetcher,
@@ -24,32 +29,203 @@ from .harvester import (
 
 
 console = Console()
+Backend = Union[Database, DatabaseRouter]
 
 
-def _resolve_db(db_path: Optional[str]) -> Path:
+def _ctx_json(ctx: click.Context) -> bool:
+    return bool(ctx.obj and ctx.obj.get("json"))
+
+
+def _resolve_single_db(db_path: Optional[str]) -> Path:
     path = Path(db_path) if db_path else config.DEFAULT_DB
     init_db(path)
     return path.resolve()
+
+
+def _open_backend(db_path: Optional[str]) -> Backend:
+    if db_path:
+        return Database(_resolve_single_db(db_path))
+    init_default_databases()
+    return DatabaseRouter()
+
+
+def _close_backend(backend: Backend) -> None:
+    backend.close()
+
+
+def _manifest_record_html(
+    path: Path,
+    *,
+    status: str = "pending",
+    canlii_ref: Optional[str] = None,
+    corpus: Optional[str] = None,
+    case_id: Optional[int] = None,
+    store: Optional[str] = None,
+    source_url: Optional[str] = None,
+    parse_error: Optional[str] = None,
+) -> None:
+    from .catalog.ingest import _sha256_file
+    from datetime import datetime, timezone
+
+    ensure_catalog_dirs()
+    manifest = Manifest.load()
+    key = Manifest.entry_key(path)
+    existing = manifest.entries.get(key)
+    entry = CatalogEntry(
+        source_path=key,
+        status=status,  # type: ignore[arg-type]
+        canlii_ref=canlii_ref,
+        corpus=corpus,
+        sha256=_sha256_file(path) if path.exists() else None,
+        fetched_at=existing.fetched_at if existing else None,
+        parsed_at=datetime.now(timezone.utc).isoformat(timespec="seconds")
+        if status == "ok"
+        else None,
+        parse_error=parse_error,
+        case_id=case_id,
+        store=store,  # type: ignore[arg-type]
+        source_url=source_url,
+    )
+    if not entry.fetched_at:
+        entry.fetched_at = entry.parsed_at
+    manifest.upsert(entry)
+    manifest.save()
 
 
 # ── Group ──────────────────────────────────────────────────────────────────
 
 
 @click.group()
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    help="Emit machine-readable JSON on stdout (for scripts and LLM agents).",
+)
 @click.version_option(package_name="criminal-db", prog_name="criminal-db")
-def cli() -> None:
+@click.pass_context
+def cli(ctx: click.Context, as_json: bool) -> None:
     """Canadian criminal-law case database CLI."""
+    ctx.ensure_object(dict)
+    ctx.obj["json"] = as_json
 
 
 # ── init ───────────────────────────────────────────────────────────────────
 
 
 @cli.command("init")
-def init_cmd() -> None:
-    """Create the default SQLite databases under ``db/`` if missing."""
+@click.pass_context
+def init_cmd(ctx: click.Context) -> None:
+    """Create databases, data directories, and an empty catalog manifest."""
     headnotes, fulltext = init_default_databases()
+    ensure_catalog_dirs()
+    if _ctx_json(ctx):
+        emit_json(
+            {
+                "headnotes_db": str(headnotes),
+                "fulltext_db": str(fulltext),
+                "manifest": str(config.MANIFEST_PATH),
+            }
+        )
+        return
     console.print(f"[green]ok[/]  headnotes db: {headnotes}")
     console.print(f"[green]ok[/]  fulltext  db: {fulltext}")
+    console.print(f"[green]ok[/]  manifest:   {config.MANIFEST_PATH}")
+
+
+# ── ingest ─────────────────────────────────────────────────────────────────
+
+
+@cli.command("ingest")
+@click.argument("paths", nargs=-1, type=click.Path(exists=True, dir_okay=True))
+@click.option("--force", is_flag=True, help="Re-parse even when SHA-256 is unchanged")
+@click.pass_context
+def ingest_cmd(ctx: click.Context, paths: tuple[str, ...], force: bool) -> None:
+    """Parse HTML under PATHS and store cases via the dual-database router.
+
+    With no PATHS, ingests ``data/cases/fulltext``, ``data/cases/headnotes``,
+    and ``data/raw`` when those directories exist.
+    """
+    if paths:
+        roots = [Path(p) for p in paths]
+    else:
+        roots = [
+            config.CASES_DIR / "fulltext",
+            config.CASES_DIR / "headnotes",
+            config.RAW_DIR,
+        ]
+        roots = [r for r in roots if r.exists()]
+        if not roots:
+            raise click.UsageError(
+                "no paths given and no default data/ directories found; "
+                "run `criminal-db init` or pass explicit PATHS"
+            )
+
+    router = DatabaseRouter()
+    try:
+        report = ingest_paths(roots, router=router, force=force)
+    finally:
+        router.close()
+
+    if _ctx_json(ctx):
+        emit_json(report.to_dict())
+        return
+    console.print(
+        f"[green]{report.ok} ok[/], [yellow]{report.skipped} skipped[/], "
+        f"[red]{report.failed} failed[/]"
+    )
+
+
+# ── catalog index ──────────────────────────────────────────────────────────
+
+
+@cli.command("index")
+@click.option(
+    "--status",
+    type=click.Choice(["pending", "ok", "failed", "skipped"]),
+    default=None,
+)
+@click.option("--court", default=None, help="Filter by substring in citation")
+@click.pass_context
+def index_cmd(
+    ctx: click.Context,
+    status: Optional[str],
+    court: Optional[str],
+) -> None:
+    """List catalog manifest entries (ingest / harvest bookkeeping)."""
+    ensure_catalog_dirs()
+    manifest = Manifest.load()
+    entries = manifest.list_entries(
+        status=status,  # type: ignore[arg-type]
+        court_substr=court,
+    )
+    if _ctx_json(ctx):
+        emit_json(
+            {
+                "manifest": str(manifest.path),
+                "count": len(entries),
+                "entries": [e.to_dict() for e in entries],
+            }
+        )
+        return
+    if not entries:
+        console.print("[yellow]no catalog entries[/]")
+        return
+    from rich.table import Table
+
+    table = Table()
+    table.add_column("status")
+    table.add_column("citation")
+    table.add_column("store")
+    table.add_column("source")
+    for e in entries:
+        table.add_row(
+            e.status,
+            e.canlii_ref or "—",
+            e.store or "—",
+            e.source_path,
+        )
+    console.print(table)
 
 
 # ── parse (offline) ────────────────────────────────────────────────────────
@@ -57,68 +233,122 @@ def init_cmd() -> None:
 
 @cli.command("parse")
 @click.argument("paths", nargs=-1, type=click.Path(exists=True, dir_okay=True))
-@click.option("--db", "db_path", default=None, help="SQLite database path")
+@click.option(
+    "--db",
+    "db_path",
+    default=None,
+    help="Single SQLite file (bypasses dual-database router)",
+)
 @click.option(
     "--no-store",
     is_flag=True,
     help="Print the parsed JSON instead of storing it in the database",
 )
-def parse_cmd(paths: tuple[str, ...], db_path: Optional[str], no_store: bool) -> None:
-    """Parse CanLII HTML files that you've already downloaded.
-
-    ``PATHS`` may be individual ``.html`` files or directories.
-    """
+@click.option("--catalog/--no-catalog", default=True, help="Update manifest.json")
+@click.pass_context
+def parse_cmd(
+    ctx: click.Context,
+    paths: tuple[str, ...],
+    db_path: Optional[str],
+    no_store: bool,
+    catalog: bool,
+) -> None:
+    """Parse CanLII HTML files that you've already downloaded."""
     if not paths:
         raise click.UsageError("at least one path is required")
-    files: list[Path] = []
-    for raw in paths:
-        p = Path(raw)
-        if p.is_dir():
-            files.extend(sorted(p.rglob("*.html")))
+
+    if no_store:
+        from .catalog.ingest import collect_html_files
+
+        rows: list[dict] = []
+        for path in collect_html_files([Path(p) for p in paths]):
+            html = path.read_text(encoding="utf-8", errors="replace")
+            case = CanLIIParser(html, source_url=path.resolve().as_uri()).parse()
+            rows.append(export_case_to_json(case))
+        if _ctx_json(ctx):
+            emit_json({"cases": rows, "count": len(rows)})
         else:
-            files.append(p)
-    if not files:
-        console.print("[yellow]no .html files found[/]")
+            for row in rows:
+                console.print_json(data=row)
         return
 
-    db: Optional[Database] = None
-    if not no_store:
-        db = Database(_resolve_db(db_path))
-
+    backend = _open_backend(db_path)
     parsed_ok = 0
     parsed_fail = 0
+    results: list[dict] = []
     try:
-        for path in files:
+        from .catalog.ingest import collect_html_files
+
+        for path in collect_html_files([Path(p) for p in paths]):
             try:
                 html = path.read_text(encoding="utf-8", errors="replace")
                 case = CanLIIParser(
                     html, source_url=path.resolve().as_uri()
                 ).parse()
                 payload = export_case_to_json(case)
-                if no_store:
-                    console.print_json(data=payload)
+                if case.canlii_ref == "UNKNOWN":
+                    if catalog:
+                        _manifest_record_html(
+                            path,
+                            status="skipped",
+                            parse_error="no citation detected",
+                        )
+                    parsed_fail += 1
+                    results.append(
+                        {"path": str(path), "status": "skipped", "error": "no citation"}
+                    )
+                    continue
+                if isinstance(backend, DatabaseRouter):
+                    case_id, store = backend.store_case(payload)
                 else:
-                    assert db is not None
-                    if case.canlii_ref == "UNKNOWN":
-                        console.print(f"[yellow]skip[/] {path.name}: no citation detected")
-                        parsed_fail += 1
-                        continue
-                    case_id = db.store_case(payload)
-                    console.print(
-                        f"[green]ok[/] {path.name} -> case_id={case_id} "
-                        f"({case.canlii_ref}, {len(case.paragraphs)} paras)"
+                    case_id = backend.store_case(payload)
+                    store = case.corpus
+                if catalog:
+                    _manifest_record_html(
+                        path,
+                        status="ok",
+                        canlii_ref=case.canlii_ref,
+                        corpus=case.corpus,
+                        case_id=case_id,
+                        store=store,  # type: ignore[arg-type]
+                        source_url=case.source_url,
                     )
                 parsed_ok += 1
-            except Exception as exc:  # pragma: no cover - error surface
-                console.print(f"[red]err[/] {path.name}: {exc}")
+                results.append(
+                    {
+                        "path": str(path),
+                        "status": "ok",
+                        "canlii_ref": case.canlii_ref,
+                        "case_id": case_id,
+                        "store": store,
+                        "paragraphs": len(case.paragraphs),
+                    }
+                )
+                if not _ctx_json(ctx):
+                    console.print(
+                        f"[green]ok[/] {path.name} -> case_id={case_id} "
+                        f"({case.canlii_ref}, {store}, {len(case.paragraphs)} paras)"
+                    )
+            except Exception as exc:
+                if catalog:
+                    _manifest_record_html(
+                        path, status="failed", parse_error=str(exc)
+                    )
                 parsed_fail += 1
+                results.append(
+                    {"path": str(path), "status": "failed", "error": str(exc)}
+                )
+                if not _ctx_json(ctx):
+                    console.print(f"[red]err[/] {path.name}: {exc}")
     finally:
-        if db is not None:
-            db.close()
+        _close_backend(backend)
 
-    console.print(
-        f"\n[green]{parsed_ok} ok[/], [red]{parsed_fail} failed[/]."
-    )
+    if _ctx_json(ctx):
+        emit_json({"ok": parsed_ok, "failed": parsed_fail, "results": results})
+    else:
+        console.print(
+            f"\n[green]{parsed_ok} ok[/], [red]{parsed_fail} failed[/]."
+        )
 
 
 # ── harvest (online) ───────────────────────────────────────────────────────
@@ -126,40 +356,42 @@ def parse_cmd(paths: tuple[str, ...], db_path: Optional[str], no_store: bool) ->
 
 @cli.command("harvest")
 @click.argument("url")
-@click.option("--db", "db_path", default=None, help="SQLite database path")
+@click.option(
+    "--db",
+    "db_path",
+    default=None,
+    help="Single SQLite file (bypasses dual-database router)",
+)
 @click.option(
     "--save-html",
     type=click.Path(file_okay=False, dir_okay=True),
     default=None,
-    help="Directory to save raw HTML",
+    help="Directory to save raw HTML (also registers paths in the catalog)",
 )
 @click.option(
     "--listing/--single",
     default=False,
     help="Treat URL as a listing page and follow each case link",
 )
-@click.option("--limit", default=10, type=int, help="Max cases to fetch from a listing")
+@click.option("--limit", default=10, type=int, help="Max cases from a listing")
+@click.pass_context
 def harvest_cmd(
+    ctx: click.Context,
     url: str,
     db_path: Optional[str],
     save_html: Optional[str],
     listing: bool,
     limit: int,
 ) -> None:
-    """Fetch one or more cases from CanLII.
-
-    By default, ``URL`` is treated as a single case-detail page.  Use
-    ``--listing`` to treat it as a search-results / index page and follow
-    every case link on it (up to ``--limit``).
-    """
-    db_resolved = _resolve_db(db_path)
+    """Fetch one or more cases from CanLII (subject to robots.txt)."""
     asyncio.run(
         _run_harvest(
             url,
-            db_path=db_resolved,
+            db_path=db_path,
             save_html=Path(save_html) if save_html else None,
             listing=listing,
             limit=limit,
+            as_json=_ctx_json(ctx),
         )
     )
 
@@ -167,72 +399,123 @@ def harvest_cmd(
 async def _run_harvest(
     url: str,
     *,
-    db_path: Path,
+    db_path: Optional[str],
     save_html: Optional[Path],
     listing: bool,
     limit: int,
+    as_json: bool,
 ) -> None:
-    async with CanLIIFetcher() as fetcher:
-        if not listing:
-            await _harvest_single(fetcher, url, db_path=db_path, save_html=save_html)
-            return
+    backend = _open_backend(db_path)
+    harvested: list[dict] = []
+    try:
+        async with CanLIIFetcher() as fetcher:
+            if not listing:
+                row = await _harvest_single(
+                    fetcher, url, backend=backend, save_html=save_html
+                )
+                if row:
+                    harvested.append(row)
+            else:
+                if not as_json:
+                    console.print(f"[cyan]listing[/] {url}")
+                index = await fetcher.fetch(url)
+                if index is None:
+                    if as_json:
+                        emit_json({"error": "failed to fetch listing", "harvested": []})
+                    else:
+                        console.print("[red]failed to fetch listing[/]")
+                    return
+                links = extract_case_links(index.html)[:limit]
+                if save_html:
+                    save_html.mkdir(parents=True, exist_ok=True)
+                    index_path = save_html / "_index.html"
+                    index_path.write_text(index.html, encoding="utf-8")
+                    _manifest_record_html(index_path, status="skipped")
+                if not as_json:
+                    console.print(f"  found [bold]{len(links)}[/] case link(s)")
+                for case_url in links:
+                    row = await _harvest_single(
+                        fetcher, case_url, backend=backend, save_html=save_html
+                    )
+                    if row:
+                        harvested.append(row)
+    finally:
+        _close_backend(backend)
 
-        console.print(f"[cyan]listing[/] {url}")
-        index = await fetcher.fetch(url)
-        if index is None:
-            console.print("[red]failed to fetch listing[/]")
-            return
-        links = extract_case_links(index.html)[:limit]
-        if save_html:
-            save_html.mkdir(parents=True, exist_ok=True)
-            (save_html / "_index.html").write_text(index.html, encoding="utf-8")
-        console.print(f"  found [bold]{len(links)}[/] case link(s)")
-        for case_url in links:
-            await _harvest_single(
-                fetcher, case_url, db_path=db_path, save_html=save_html
-            )
+    if as_json:
+        emit_json({"harvested": harvested, "count": len(harvested)})
 
 
 async def _harvest_single(
     fetcher: CanLIIFetcher,
     url: str,
     *,
-    db_path: Path,
+    backend: Backend,
     save_html: Optional[Path],
-) -> None:
+) -> Optional[dict]:
     console.print(f"[cyan]fetch[/] {url}")
     result = await fetcher.fetch(url)
     if result is None:
         console.print("[red]  failed[/]")
-        return
+        return None
     case = CanLIIParser(result.html, source_url=url).parse()
     if case.canlii_ref == "UNKNOWN":
         console.print("[yellow]  no citation detected; not storing[/]")
-        return
+        return None
 
+    html_path: Optional[Path] = None
     if save_html:
         save_html.mkdir(parents=True, exist_ok=True)
         safe = case.canlii_ref.replace(" ", "_").replace("/", "_")
-        (save_html / f"{safe}.html").write_text(result.html, encoding="utf-8")
+        html_path = save_html / f"{safe}.html"
+        html_path.write_text(result.html, encoding="utf-8")
 
-    with Database(db_path) as db:
-        case_id = db.store_case(export_case_to_json(case))
+    if isinstance(backend, DatabaseRouter):
+        case_id, store = backend.store_case(export_case_to_json(case))
+    else:
+        case_id = backend.store_case(export_case_to_json(case))
+        store = case.corpus
+
+    if html_path is not None:
+        _manifest_record_html(
+            html_path,
+            status="ok",
+            canlii_ref=case.canlii_ref,
+            corpus=case.corpus,
+            case_id=case_id,
+            store=store,  # type: ignore[arg-type]
+            source_url=url,
+        )
+
     console.print(
         f"[green]  ok[/] {case.canlii_ref} -> case_id={case_id} "
-        f"({len(case.paragraphs)} paras, {case.corpus})"
+        f"({len(case.paragraphs)} paras, {store})"
     )
+    return {
+        "url": url,
+        "canlii_ref": case.canlii_ref,
+        "case_id": case_id,
+        "store": store,
+        "paragraphs": len(case.paragraphs),
+        "html_path": str(html_path) if html_path else None,
+    }
 
 
 # ── embed ──────────────────────────────────────────────────────────────────
 
 
 @cli.command("embed")
-@click.option("--db", "db_path", default=None, help="SQLite database path")
 @click.option(
-    "--batch-size", default=None, type=int, help="Override embedder batch size"
+    "--db",
+    "db_path",
+    default=None,
+    help="Single SQLite file (default: embed both fulltext and headnotes)",
 )
-@click.option("--limit", default=None, type=int, help="Max paragraphs to process")
+@click.option("--batch-size", default=None, type=int)
+@click.option("--limit", default=None, type=int)
+@click.pass_context
 def embed_cmd(
+    ctx: click.Context,
     db_path: Optional[str],
     batch_size: Optional[int],
     limit: Optional[int],
@@ -240,26 +523,53 @@ def embed_cmd(
     """Compute embeddings for paragraphs that don't have one yet."""
     from .embedding import Embedder, chunked
 
-    db = Database(_resolve_db(db_path))
+    backend = _open_backend(db_path)
+    as_json = _ctx_json(ctx)
     try:
-        missing = db.paragraphs_missing_embeddings(limit=limit)
+        if isinstance(backend, Database):
+            missing = [
+                (pid, text, "fulltext")  # type: ignore[misc]
+                for pid, text in backend.paragraphs_missing_embeddings(limit=limit)
+            ]
+        else:
+            missing = backend.paragraphs_missing_embeddings(limit=limit)
+
         if not missing:
-            console.print("[green]all paragraphs already embedded[/]")
+            if as_json:
+                emit_json({"embedded": 0, "message": "all paragraphs already embedded"})
+            else:
+                console.print("[green]all paragraphs already embedded[/]")
             return
-        console.print(f"[cyan]embedding[/] {len(missing)} paragraphs")
+
+        if not as_json:
+            console.print(f"[cyan]embedding[/] {len(missing)} paragraphs")
         embedder = Embedder()
         size = batch_size or config.EMBEDDING_BATCH_SIZE
         total = 0
         for batch in chunked(missing, size):
-            ids = [pid for pid, _ in batch]
-            texts = [text for _, text in batch]
-            vectors = embedder.encode(texts)
-            db.store_embeddings(zip(ids, vectors))
+            if isinstance(backend, DatabaseRouter):
+                ids = [pid for pid, _, _ in batch]
+                texts = [text for _, text, _ in batch]
+                vectors = embedder.encode(texts)
+                items = [
+                    (pid, vec, store)
+                    for (pid, _, store), vec in zip(batch, vectors)
+                ]
+                backend.store_embeddings(items)
+            else:
+                ids = [pid for pid, _, _ in batch]
+                texts = [text for _, text, _ in batch]
+                vectors = embedder.encode(texts)
+                backend.store_embeddings(zip(ids, vectors))
             total += len(batch)
-            console.print(f"  +{len(batch)} ({total}/{len(missing)})")
-        console.print(f"[green]ok[/] embedded {total} paragraphs")
+            if not as_json:
+                console.print(f"  +{len(batch)} ({total}/{len(missing)})")
+        if as_json:
+            emit_json({"embedded": total})
+        else:
+            console.print(f"[green]ok[/] embedded {total} paragraphs")
     finally:
-        db.close()
+        _close_backend(backend)
 
 
 # ── search ─────────────────────────────────────────────────────────────────
@@ -272,118 +582,135 @@ def embed_cmd(
     "search_type",
     type=click.Choice(["fts", "vector", "hybrid"], case_sensitive=False),
     default="fts",
-    help="Search strategy",
 )
-@click.option("--db", "db_path", default=None, help="SQLite database path")
+@click.option(
+    "--db",
+    "db_path",
+    default=None,
+    help="Single SQLite file (default: search both databases)",
+)
 @click.option("--limit", "-n", default=config.DEFAULT_SEARCH_LIMIT, type=int)
-@click.option("--court", default=None, help="Filter by court name")
-@click.option("--year", default=None, type=int, help="Filter by court_year")
+@click.option("--offset", default=0, type=int, help="Skip this many merged hits")
+@click.option("--court", default=None)
+@click.option("--year", default=None, type=int)
 @click.option(
     "--corpus",
     default=None,
     type=click.Choice(["fulltext", "headnote"], case_sensitive=False),
 )
+@click.pass_context
 def search_cmd(
+    ctx: click.Context,
     query: str,
     search_type: str,
     db_path: Optional[str],
     limit: int,
+    offset: int,
     court: Optional[str],
     year: Optional[int],
     corpus: Optional[str],
 ) -> None:
-    """Search the database with FTS5, vector similarity, or a hybrid of both."""
-    db = Database(_resolve_db(db_path))
+    """Search with FTS5, vector similarity, or hybrid fusion."""
+    backend = _open_backend(db_path)
+    as_json = _ctx_json(ctx)
     try:
         st = search_type.lower()
-        if st == "fts":
-            results = db.search_fts(
-                query, limit=limit, court=court, year=year, corpus=corpus
-            )
-        elif st == "vector":
-            from .embedding import Embedder
-            vector = Embedder().encode_one(query)
-            results = db.search_vector(
-                vector, limit=limit, court=court, year=year, corpus=corpus
-            )
-        else:
-            from .embedding import Embedder
-            vector = Embedder().encode_one(query)
-            results = db.search_hybrid(
-                query, vector, limit=limit, court=court, year=year, corpus=corpus
-            )
-    finally:
-        db.close()
-
-    if not results:
-        console.print("[yellow]no results[/]")
-        return
-
-    table = Table(show_lines=True)
-    table.add_column("#", justify="right", style="dim")
-    table.add_column("citation", style="cyan")
-    table.add_column("¶", justify="right")
-    table.add_column("court / date", style="green")
-    table.add_column("score", justify="right")
-    table.add_column("excerpt")
-    for idx, r in enumerate(results, 1):
-        para = "" if r.paragraph_num is None else str(r.paragraph_num)
-        excerpt = r.text if len(r.text) <= 220 else r.text[:217] + "..."
-        table.add_row(
-            str(idx),
-            r.canlii_ref,
-            para,
-            f"{r.court or '—'}\n{r.decided_date or '—'}",
-            f"{r.score:.3f}",
-            excerpt,
+        common = dict(
+            limit=limit, court=court, year=year, corpus=corpus, offset=offset
         )
-    console.print(table)
+        if isinstance(backend, DatabaseRouter):
+            if st == "fts":
+                results = backend.search_fts(query, **common)
+            elif st == "vector":
+                from .embedding import Embedder
+
+                vector = Embedder().encode_one(query)
+                results = backend.search_vector(vector, **common)
+            else:
+                from .embedding import Embedder
+
+                vector = Embedder().encode_one(query)
+                results = backend.search_hybrid(query, vector, **common)
+        else:
+            if st == "fts":
+                results = backend.search_fts(
+                    query, limit=limit, court=court, year=year, corpus=corpus
+                )
+            elif st == "vector":
+                from .embedding import Embedder
+
+                vector = Embedder().encode_one(query)
+                results = backend.search_vector(
+                    vector, limit=limit, court=court, year=year, corpus=corpus
+                )
+            else:
+                from .embedding import Embedder
+
+                vector = Embedder().encode_one(query)
+                results = backend.search_hybrid(
+                    query, vector, limit=limit, court=court, year=year, corpus=corpus
+                )
+    finally:
+        _close_backend(backend)
+
+    print_search_results(
+        results,
+        as_json=as_json,
+        meta={
+            "query": query,
+            "type": st,
+            "limit": limit,
+            "offset": offset,
+            "corpus": corpus,
+        },
+    )
 
 
 # ── analyze ────────────────────────────────────────────────────────────────
 
 
 @cli.command("analyze")
-@click.option("--db", "db_path", default=None, help="SQLite database path")
-def analyze_cmd(db_path: Optional[str]) -> None:
+@click.option(
+    "--db",
+    "db_path",
+    default=None,
+    help="Single SQLite file (default: analyse both databases)",
+)
+@click.pass_context
+def analyze_cmd(ctx: click.Context, db_path: Optional[str]) -> None:
     """Print database statistics."""
-    db = Database(_resolve_db(db_path))
+    backend = _open_backend(db_path)
     try:
-        cases = db.case_count()
-        paragraphs = db.paragraph_count()
-        ratios = db.ratio_paragraph_count()
-        headnotes = db.headnote_paragraph_count()
-        embeddings = db.embedding_count()
-        console.print(f"[bold]cases:[/]        {cases}")
-        console.print(f"[bold]paragraphs:[/]   {paragraphs}")
-        console.print(f"  ratio:       {ratios}")
-        console.print(f"  headnote:    {headnotes}")
-        console.print(f"  embeddings:  {embeddings}/{paragraphs}")
-
-        by_court = db.court_distribution()
-        if by_court:
-            console.print("\n[bold]by court[/]")
-            table = Table()
-            table.add_column("court")
-            table.add_column("n", justify="right")
-            for name, n in sorted(by_court.items(), key=lambda kv: -kv[1]):
-                table.add_row(name, str(n))
-            console.print(table)
-
-        by_year = db.year_distribution()
-        if by_year:
-            console.print("\n[bold]by year[/]")
-            table = Table()
-            table.add_column("year")
-            table.add_column("n", justify="right")
-            for year, n in sorted(by_year.items()):
-                table.add_row(str(year), str(n))
-            console.print(table)
+        if isinstance(backend, DatabaseRouter):
+            stats = backend.analyze()
+        else:
+            stats = {
+                "stores": {
+                    "single": {
+                        "path": str(backend.db_path),
+                        "cases": backend.case_count(),
+                        "paragraphs": backend.paragraph_count(),
+                        "ratio_paragraphs": backend.ratio_paragraph_count(),
+                        "headnote_paragraphs": backend.headnote_paragraph_count(),
+                        "embeddings": backend.embedding_count(),
+                        "by_court": backend.court_distribution(),
+                        "by_year": backend.year_distribution(),
+                    }
+                },
+                "total": {
+                    "cases": backend.case_count(),
+                    "paragraphs": backend.paragraph_count(),
+                    "ratio_paragraphs": backend.ratio_paragraph_count(),
+                    "headnote_paragraphs": backend.headnote_paragraph_count(),
+                    "embeddings": backend.embedding_count(),
+                },
+            }
+        print_analyze(stats, as_json=_ctx_json(ctx))
     finally:
-        db.close()
+        _close_backend(backend)
 
 
-def main() -> None:  # pragma: no cover - CLI entry
+def main() -> None:  # pragma: no cover
     cli(prog_name="criminal-db")
 
 

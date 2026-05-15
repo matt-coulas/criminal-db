@@ -74,6 +74,61 @@ def test_search_no_results(tmp_path, fixtures_dir):
 def test_help_renders():
     result = _invoke(["--help"])
     assert result.exit_code == 0
-    # The previous CLI crashed at import time on @cli.command before def cli().
-    for sub in ("init", "parse", "harvest", "embed", "search", "analyze"):
+    for sub in ("init", "ingest", "index", "parse", "harvest", "embed", "search", "analyze"):
         assert sub in result.output
+
+
+def test_parse_routes_headnote_to_headnotes_db(
+    tmp_path: Path, monkeypatch, fixtures_dir
+):
+    monkeypatch.setattr("criminal_db.config.DB_DIR", tmp_path)
+    monkeypatch.setattr("criminal_db.config.FULLTEXT_DB", tmp_path / "fulltext.db")
+    monkeypatch.setattr("criminal_db.config.HEADNOTES_DB", tmp_path / "headnotes.db")
+    monkeypatch.setattr("criminal_db.config.INDEX_DIR", tmp_path / "index")
+    monkeypatch.setattr(
+        "criminal_db.config.MANIFEST_PATH", tmp_path / "index" / "manifest.json"
+    )
+    monkeypatch.setattr("criminal_db.config.DEFAULT_DB", tmp_path / "fulltext.db")
+
+    _invoke(["init"])
+    src = fixtures_dir / "headnote_fca.html"
+    result = _invoke(["parse", str(src), "--no-catalog"])
+    assert result.exit_code == 0, result.output
+
+    from criminal_db.db import Database
+
+    ft = Database(tmp_path / "fulltext.db", auto_init=False)
+    hn = Database(tmp_path / "headnotes.db", auto_init=False)
+    try:
+        assert ft.case_count() == 0
+        assert hn.case_count() == 1
+    finally:
+        ft.close()
+        hn.close()
+
+
+def test_search_json_output(tmp_path, fixtures_dir):
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr("criminal_db.config.DB_DIR", tmp_path)
+    monkeypatch.setattr("criminal_db.config.FULLTEXT_DB", tmp_path / "fulltext.db")
+    monkeypatch.setattr("criminal_db.config.HEADNOTES_DB", tmp_path / "headnotes.db")
+    monkeypatch.setattr("criminal_db.config.DEFAULT_DB", tmp_path / "fulltext.db")
+    try:
+        src = fixtures_dir / "fulltext_scc.html"
+        _invoke(["parse", str(src), "--db", str(tmp_path / "fulltext.db"), "--no-catalog"])
+        result = _invoke(
+            [
+                "--json",
+                "search",
+                "warrantless",
+                "--db",
+                str(tmp_path / "fulltext.db"),
+                "--type",
+                "fts",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        assert '"results"' in result.output
+        assert "2024 SCC 1" in result.output
+    finally:
+        monkeypatch.undo()
