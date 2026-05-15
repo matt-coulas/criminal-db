@@ -79,6 +79,10 @@ def test_help_renders():
     for sub in (
         "init",
         "validate",
+        "verify",
+        "backup",
+        "restore",
+        "serve",
         "ingest",
         "import",
         "index",

@@ -14,6 +14,12 @@
     "min_hits": 1
   },
   {
+    "id": "voir-dire",
+    "query": "voir dire admissibility",
+    "scope": "cases",
+    "min_hits": 1
+  },
+  {
     "id": "cc-s8-search",
     "query": "unreasonable search or seizure",
     "scope": "statutes",
@@ -25,6 +31,12 @@
     "query": "arbitrarily detained",
     "scope": "statutes",
     "expect_sections": ["9"],
+    "min_hits": 1
+  },
+  {
+    "id": "unified-search",
+    "query": "unreasonable search",
+    "scope": "all",
     "min_hits": 1
   }
 ]

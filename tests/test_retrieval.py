@@ -9,11 +9,17 @@ from click.testing import CliRunner
 from criminal_db.cli import cli
 from criminal_db.db import Database, DatabaseRouter
 from criminal_db.harvester.parser import CanLIIParser, export_case_to_json
-from criminal_db.retrieval import normalize_canlii_ref
+from criminal_db.retrieval import citation_lookup_variants, normalize_canlii_ref
 
 
 def test_normalize_canlii_ref():
     assert normalize_canlii_ref("2024 scc 1") == "2024 SCC 1"
+    assert normalize_canlii_ref("  2024  scc   1  ") == "2024 SCC 1"
+
+
+def test_citation_lookup_variants():
+    variants = citation_lookup_variants("2024 scc 1")
+    assert "2024 SCC 1" in variants
 
 
 def test_router_get_case(dual_dbs, fulltext_html):

@@ -10,7 +10,8 @@ Pass **`--json`** immediately after the program name so subcommands emit JSON on
 criminal-db --json init
 criminal-db --json ingest data/cases/fulltext
 criminal-db --json index --status ok
-criminal-db --json search "section 8 charter" --type hybrid
+criminal-db --json search "section 8 charter" --type hybrid --scope all
+criminal-db --json verify
 criminal-db --json analyze
 criminal-db --json parse path/to/case.html --no-store
 ```
@@ -115,5 +116,7 @@ criminal-db --json statutes get 8
 criminal-db --json search "unreasonable search" --scope statutes
 ```
 
-Case search and statute search are separate corpora; use `--scope cases` (default)
-or `--scope statutes`.
+Use `--scope cases` (default), `--scope statutes`, or `--scope all` (merged FTS/hybrid).
+
+Optional local HTTP API: `criminal-db serve` (see [RUNBOOK.md](RUNBOOK.md)).
+Tool manifest: [MCP_TOOLS.json](MCP_TOOLS.json).

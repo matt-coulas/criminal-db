@@ -188,6 +188,96 @@ def validate_cmd(ctx: click.Context, paths: tuple[str, ...]) -> None:
         raise SystemExit(1)
 
 
+# ── verify (DB / catalog) ──────────────────────────────────────────────────
+
+
+@cli.command("verify")
+@click.option(
+    "--no-statutes",
+    is_flag=True,
+    help="Skip statutes database checks",
+)
+@click.pass_context
+def verify_cmd(ctx: click.Context, no_statutes: bool) -> None:
+    """Check manifest ↔ database consistency and FTS index drift."""
+    from .verify import run_verify
+
+    report = run_verify(include_statutes=not no_statutes)
+    if _ctx_json(ctx):
+        emit_json(report.to_dict())
+        if not report.ok:
+            raise SystemExit(1)
+        return
+    for issue in report.issues:
+        colour = {"error": "red", "warning": "yellow", "info": "cyan"}.get(
+            issue.level, "white"
+        )
+        console.print(f"[{colour}]{issue.level}[/] {issue.code}: {issue.message}")
+    if report.ok:
+        console.print("[green]ok[/] verification passed")
+    else:
+        console.print("[red]failed[/] verification found errors")
+        raise SystemExit(1)
+
+
+# ── backup / restore ───────────────────────────────────────────────────────
+
+
+@cli.command("backup")
+@click.argument(
+    "destination",
+    required=False,
+    type=click.Path(dir_okay=True, file_okay=True),
+)
+@click.option("--no-statutes", is_flag=True, help="Omit statutes.db from archive")
+@click.pass_context
+def backup_cmd(
+    ctx: click.Context, destination: Optional[str], no_statutes: bool
+) -> None:
+    """Create a .tar.gz of local databases and catalog metadata."""
+    from .ops.backup import backup_data
+
+    dest = Path(destination) if destination else config.DB_DIR / "backups"
+    archive = backup_data(dest, include_statutes=not no_statutes)
+    if _ctx_json(ctx):
+        emit_json({"archive": str(archive)})
+    else:
+        console.print(f"[green]ok[/] wrote {archive}")
+
+
+@cli.command("restore")
+@click.argument("archive", type=click.Path(exists=True, dir_okay=False))
+@click.pass_context
+def restore_cmd(ctx: click.Context, archive: str) -> None:
+    """Restore databases and catalog files from a backup archive."""
+    from .ops.backup import restore_data
+
+    paths = restore_data(Path(archive))
+    if _ctx_json(ctx):
+        emit_json({"restored": [str(p) for p in paths]})
+    else:
+        for p in paths:
+            console.print(f"[green]ok[/] restored {p}")
+
+
+@cli.command("serve")
+@click.option("--host", default=None, help=f"Bind host (default: {config.API_HOST})")
+@click.option("--port", default=None, type=int, help="Bind port")
+@click.pass_context
+def serve_cmd(ctx: click.Context, host: Optional[str], port: Optional[int]) -> None:
+    """Run a local JSON HTTP API for search and get (localhost by default)."""
+    from .server import serve
+
+    if _ctx_json(ctx):
+        raise click.UsageError("serve does not support --json")
+    h = host or config.API_HOST
+    p = port or config.API_PORT
+    console.print(f"[cyan]listening[/] http://{h}:{p}/  (Ctrl+C to stop)")
+    if config.API_TOKEN:
+        console.print("[dim]API token required (Authorization: Bearer …)[/]")
+    serve(host=h, port=p)
+
+
 # ── ingest ─────────────────────────────────────────────────────────────────
 
 
@@ -758,20 +848,67 @@ async def _harvest_single(
     default=None,
     help="Single SQLite file (default: embed both fulltext and headnotes)",
 )
+@click.option(
+    "--scope",
+    type=click.Choice(["cases", "statutes", "all"], case_sensitive=False),
+    default="cases",
+    help="Embed case paragraphs, statute sections, or both",
+)
 @click.option("--batch-size", default=None, type=int)
 @click.option("--limit", default=None, type=int)
 @click.pass_context
 def embed_cmd(
     ctx: click.Context,
     db_path: Optional[str],
+    scope: str,
     batch_size: Optional[int],
     limit: Optional[int],
 ) -> None:
-    """Compute embeddings for paragraphs that don't have one yet."""
+    """Compute embeddings for paragraphs or sections missing vectors."""
     from .embedding import Embedder, chunked
+    from .statutes import StatutesDatabase
+
+    as_json = _ctx_json(ctx)
+    sc = scope.lower()
+    total = 0
+
+    def _embed_statutes() -> int:
+        db = StatutesDatabase()
+        try:
+            missing = db.sections_missing_embeddings(limit=limit)
+            if not missing:
+                return 0
+            if not as_json:
+                console.print(f"[cyan]embedding[/] {len(missing)} statute sections")
+            embedder = Embedder()
+            size = batch_size or config.EMBEDDING_BATCH_SIZE
+            written = 0
+            for batch in chunked(missing, size):
+                ids = [sid for sid, _ in batch]
+                texts = [text for _, text in batch]
+                vectors = embedder.encode(texts)
+                db.store_embeddings(list(zip(ids, vectors)))
+                written += len(batch)
+                if not as_json:
+                    console.print(f"  +{len(batch)} ({written}/{len(missing)})")
+            return written
+        finally:
+            db.close()
+
+    if sc in ("statutes", "all"):
+        total += _embed_statutes()
+    if sc == "statutes":
+        if as_json:
+            emit_json({"embedded": total, "scope": "statutes"})
+        elif total == 0:
+            console.print("[green]all statute sections already embedded[/]")
+        else:
+            console.print(f"[green]ok[/] embedded {total} statute sections")
+        return
+    if sc == "all" and db_path:
+        raise click.UsageError("--db applies to case stores only; omit for --scope all")
 
     backend = _open_backend(db_path)
-    as_json = _ctx_json(ctx)
     try:
         if isinstance(backend, Database):
             missing = [
@@ -781,40 +918,43 @@ def embed_cmd(
         else:
             missing = backend.paragraphs_missing_embeddings(limit=limit)
 
-        if not missing:
+        if not missing and sc == "cases":
             if as_json:
-                emit_json({"embedded": 0, "message": "all paragraphs already embedded"})
+                emit_json({"embedded": total, "scope": "cases"})
             else:
                 console.print("[green]all paragraphs already embedded[/]")
             return
 
-        if not as_json:
-            console.print(f"[cyan]embedding[/] {len(missing)} paragraphs")
-        embedder = Embedder()
-        size = batch_size or config.EMBEDDING_BATCH_SIZE
-        total = 0
-        for batch in chunked(missing, size):
-            if isinstance(backend, DatabaseRouter):
-                ids = [pid for pid, _, _ in batch]
-                texts = [text for _, text, _ in batch]
-                vectors = embedder.encode(texts)
-                items = [
-                    (pid, vec, store)
-                    for (pid, _, store), vec in zip(batch, vectors)
-                ]
-                backend.store_embeddings(items)
-            else:
-                ids = [pid for pid, _, _ in batch]
-                texts = [text for _, text, _ in batch]
-                vectors = embedder.encode(texts)
-                backend.store_embeddings(zip(ids, vectors))
-            total += len(batch)
+        if missing:
             if not as_json:
-                console.print(f"  +{len(batch)} ({total}/{len(missing)})")
+                console.print(f"[cyan]embedding[/] {len(missing)} paragraphs")
+            embedder = Embedder()
+            size = batch_size or config.EMBEDDING_BATCH_SIZE
+            case_total = 0
+            for batch in chunked(missing, size):
+                if isinstance(backend, DatabaseRouter):
+                    texts = [text for _, text, _ in batch]
+                    vectors = embedder.encode(texts)
+                    items = [
+                        (pid, vec, store)
+                        for (pid, _, store), vec in zip(batch, vectors)
+                    ]
+                    backend.store_embeddings(items)
+                else:
+                    ids = [pid for pid, _, _ in batch]
+                    texts = [text for _, text, _ in batch]
+                    vectors = embedder.encode(texts)
+                    backend.store_embeddings(zip(ids, vectors))
+                case_total += len(batch)
+                if not as_json:
+                    console.print(f"  +{len(batch)} ({case_total}/{len(missing)})")
+            total += case_total
+        if sc == "all":
+            total += _embed_statutes()
         if as_json:
-            emit_json({"embedded": total})
-        else:
-            console.print(f"[green]ok[/] embedded {total} paragraphs")
+            emit_json({"embedded": total, "scope": sc})
+        elif total:
+            console.print(f"[green]ok[/] embedded {total} item(s)")
     finally:
         _close_backend(backend)
 
@@ -852,9 +992,9 @@ def embed_cmd(
 )
 @click.option(
     "--scope",
-    type=click.Choice(["cases", "statutes"], case_sensitive=False),
+    type=click.Choice(["cases", "statutes", "all"], case_sensitive=False),
     default="cases",
-    help="Search case law or Criminal Code sections",
+    help="Search case law, Criminal Code sections, or both (FTS/hybrid)",
 )
 @click.pass_context
 def search_cmd(
@@ -872,14 +1012,105 @@ def search_cmd(
 ) -> None:
     """Search with FTS5, vector similarity, or hybrid fusion."""
     as_json = _ctx_json(ctx)
-    if scope.lower() == "statutes":
-        if search_type.lower() != "fts":
-            raise click.UsageError("statute search supports --type fts only")
+    sc = scope.lower()
+    st = search_type.lower()
+
+    if sc == "all":
+        if st == "vector":
+            raise click.UsageError("scope=all supports --type fts or hybrid only")
+        from .search_unified import search_all_fts, search_all_hybrid
+        from .statutes import StatutesDatabase
+
+        router = _open_backend(db_path)
+        if not isinstance(router, DatabaseRouter):
+            raise click.UsageError("scope=all requires default dual-database layout")
+        statutes_db = StatutesDatabase()
+        try:
+            if st == "hybrid":
+                from .embedding import Embedder
+
+                vec = Embedder().encode_one(query)
+                hits = search_all_hybrid(
+                    query,
+                    vec,
+                    router=router,
+                    statutes=statutes_db,
+                    limit=limit,
+                    offset=offset,
+                    court=court,
+                    year=year,
+                    corpus=corpus,
+                    criminal_only=not include_all,
+                )
+            else:
+                hits = search_all_fts(
+                    query,
+                    router=router,
+                    statutes=statutes_db,
+                    limit=limit,
+                    offset=offset,
+                    court=court,
+                    year=year,
+                    corpus=corpus,
+                    criminal_only=not include_all,
+                )
+        finally:
+            statutes_db.close()
+            _close_backend(router)
+        if as_json:
+            emit_json(
+                {
+                    "query": query,
+                    "scope": "all",
+                    "type": st,
+                    "results": [h.to_dict() for h in hits],
+                    "count": len(hits),
+                }
+            )
+        elif not hits:
+            console.print("[yellow]no results[/]")
+        else:
+            from rich.table import Table
+
+            table = Table()
+            table.add_column("kind")
+            table.add_column("ref")
+            table.add_column("score", justify="right")
+            table.add_column("excerpt")
+            for h in hits:
+                if h.kind == "case" and h.case:
+                    ref = h.case.canlii_ref
+                    text = h.case.text
+                elif h.statute:
+                    ref = f"s. {h.statute.section_number}"
+                    text = h.statute.text
+                else:
+                    ref = "—"
+                    text = ""
+                excerpt = text if len(text) <= 120 else text[:117] + "..."
+                table.add_row(h.kind, ref, f"{h.score:.3f}", excerpt)
+            console.print(table)
+        return
+
+    if sc == "statutes":
         from .statutes import StatutesDatabase
 
         db = StatutesDatabase()
         try:
-            results = db.search_fts(query, limit=limit)
+            if st == "fts":
+                results = db.search_fts(query, limit=limit)
+            elif st == "vector":
+                from .embedding import Embedder
+
+                vec = Embedder().encode_one(query)
+                results = db.search_vector(vec, limit=limit)
+            elif st == "hybrid":
+                from .embedding import Embedder
+
+                vec = Embedder().encode_one(query)
+                results = db.search_hybrid(query, vec, limit=limit)
+            else:
+                raise click.UsageError(f"unknown search type: {search_type}")
         finally:
             db.close()
         if as_json:

@@ -9,6 +9,7 @@ import pytest
 
 from criminal_db.db import DatabaseRouter
 from criminal_db.harvester.parser import CanLIIParser, export_case_to_json
+from criminal_db.search_unified import search_all_fts
 from criminal_db.statutes import JusticeCanadaParser, StatutesDatabase
 
 EVAL_QUERIES = Path(__file__).parent / "eval" / "queries.json"
@@ -56,6 +57,13 @@ def test_eval_query(case, eval_router, eval_statutes):
             for sec in case["expect_sections"]:
                 assert sec in nums, f"{case['id']}: expected s. {sec} in {nums}"
         assert len(results) >= min_hits, case["id"]
+        return
+
+    if scope == "all":
+        hits = search_all_fts(
+            query, router=eval_router, statutes=eval_statutes, limit=10
+        )
+        assert len(hits) >= min_hits, case["id"]
         return
 
     results = eval_router.search_fts(query, limit=10, criminal_only=True)

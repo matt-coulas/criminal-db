@@ -76,7 +76,16 @@ pytest tests/test_eval.py -q
 
 Uses synthetic fixtures only; extend `tests/eval/queries.json` as your corpus grows.
 
-## 7. Export snapshot
+## 7. Verify and backup
+
+```bash
+criminal-db verify
+criminal-db backup db/backups
+```
+
+See [RUNBOOK.md](RUNBOOK.md) for restore and upgrades.
+
+## 8. Export snapshot
 
 ```bash
 criminal-db export -o snapshot/cases.json

@@ -62,7 +62,9 @@ class SearchResult:
 _FTS5_SPECIAL = set('"():*^')
 
 
-def sanitize_fts5(query: str, *, join: str = "OR") -> str:
+def sanitize_fts5(
+    query: str, *, join: str = "OR", max_len: int | None = None
+) -> str:
     """Return an FTS5-safe MATCH expression from arbitrary user input.
 
     Each whitespace-separated token is wrapped in double quotes (with any
@@ -74,6 +76,9 @@ def sanitize_fts5(query: str, *, join: str = "OR") -> str:
     """
     if join.upper() not in {"AND", "OR"}:
         raise ValueError("join must be 'AND' or 'OR'")
+    cap = max_len if max_len is not None else config.MAX_SEARCH_QUERY_LEN
+    if len(query) > cap:
+        query = query[:cap]
     operators = {"AND", "OR", "NOT", "NEAR"}
     raw_tokens = query.split()
 

@@ -3,15 +3,45 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Optional
+
+_NEUTRAL_CITATION_RE = re.compile(
+    r"\b(\d{4})\s+([A-Za-z]{2,10})\s+(\d{1,5})\b"
+)
 
 
 def normalize_canlii_ref(ref: str) -> str:
     """Normalise a neutral citation for database lookup."""
-    parts = ref.split()
+    raw = (ref or "").strip()
+    raw = re.sub(r"\s+", " ", raw)
+    m = _NEUTRAL_CITATION_RE.search(raw)
+    if m:
+        return f"{m.group(1)} {m.group(2).upper()} {m.group(3)}"
+    parts = raw.split()
     if len(parts) >= 3 and parts[1].isalpha():
         return f"{parts[0]} {parts[1].upper()} {parts[2]}"
-    return " ".join(parts)
+    return raw
+
+
+def citation_lookup_variants(ref: str) -> list[str]:
+    """Return normalised citation forms to try for lookup (deduplicated)."""
+    primary = normalize_canlii_ref(ref)
+    variants = [primary]
+    m = _NEUTRAL_CITATION_RE.search(ref or "")
+    if m:
+        year, court, num = m.group(1), m.group(2).upper(), m.group(3)
+        variants.append(f"{year} {court} {num}")
+        if court.endswith("C"):
+            variants.append(f"{year} {court[:-1]} {num}")
+    seen: set[str] = set()
+    out: list[str] = []
+    for v in variants:
+        v = v.strip()
+        if v and v not in seen:
+            seen.add(v)
+            out.append(v)
+    return out
 
 
 def format_case_text(case: dict, *, store: Optional[str] = None) -> str:

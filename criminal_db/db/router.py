@@ -255,16 +255,16 @@ class DatabaseRouter:
         *,
         criminal_only: bool = False,
     ) -> Optional[tuple[dict, StoreName]]:
-        from ..retrieval import normalize_canlii_ref
+        from ..retrieval import citation_lookup_variants
 
-        ref = normalize_canlii_ref(canlii_ref)
-        for store in ("fulltext", "headnotes"):
-            case = self._db(store).get_case(ref)
-            if case is None:
-                continue
-            if criminal_only and not case.get("is_criminal"):
-                continue
-            return case, store
+        for ref in citation_lookup_variants(canlii_ref):
+            for store in ("fulltext", "headnotes"):
+                case = self._db(store).get_case(ref)
+                if case is None:
+                    continue
+                if criminal_only and not case.get("is_criminal"):
+                    continue
+                return case, store
         return None
 
     def list_case_refs(

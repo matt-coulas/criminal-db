@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Optional
 
 # ── Paths ───────────────────────────────────────────────────────────────────
 
@@ -80,3 +81,13 @@ DEFAULT_PAGE_SIZE: int = 20
 # Hybrid search weighting: convex combination of normalised FTS rank and
 # vector cosine similarity.  0.0 = pure vector, 1.0 = pure FTS.
 HYBRID_FTS_WEIGHT: float = 0.4
+
+# ── Input limits ────────────────────────────────────────────────────────────
+
+MAX_SEARCH_QUERY_LEN: int = int(os.environ.get("CRIMINAL_DB_MAX_QUERY_LEN", "500"))
+
+# ── HTTP API (criminal-db serve) ────────────────────────────────────────────
+
+API_HOST: str = os.environ.get("CRIMINAL_DB_API_HOST", "127.0.0.1")
+API_PORT: int = int(os.environ.get("CRIMINAL_DB_API_PORT", "8765"))
+API_TOKEN: Optional[str] = os.environ.get("CRIMINAL_DB_API_TOKEN") or None

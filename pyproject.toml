@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "criminal-db"
-version = "0.1.0"
+version = "0.2.0"
 description = "Canadian criminal-law case database with hybrid FTS5 + vector search"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -33,6 +33,7 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "aioresponses>=0.7",
+    "ruff>=0.4",
 ]
 
 [project.scripts]

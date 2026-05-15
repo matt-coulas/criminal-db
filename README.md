@@ -3,7 +3,8 @@
 A local-first Canadian criminal-law case database with hybrid full-text (FTS5)
 and semantic (sqlite-vec) search over paragraph-level case content.
 
-> **Status:** beta. Case + statute schemas and CLI may still evolve.
+> **Status:** 0.2 — local-first research tool. See [docs/RUNBOOK.md](docs/RUNBOOK.md)
+> for operations and [CHANGELOG.md](CHANGELOG.md) for releases.
 
 ## What it does
 

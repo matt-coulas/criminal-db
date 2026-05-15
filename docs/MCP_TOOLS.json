@@ -1,0 +1,58 @@
+{
+  "name": "criminal-db",
+  "version": "0.2.0",
+  "description": "Local Canadian criminal-law search (cases + Criminal Code). Prefer CLI with --json or HTTP serve.",
+  "tools": [
+    {
+      "name": "criminal_db_init",
+      "description": "Create databases, data directories, and manifest",
+      "command": ["criminal-db", "--json", "init"]
+    },
+    {
+      "name": "criminal_db_ingest",
+      "description": "Ingest HTML from data/cases paths into SQLite",
+      "command": ["criminal-db", "--json", "ingest", "--criminal-only"]
+    },
+    {
+      "name": "criminal_db_import",
+      "description": "Import staged HTML/PDF from data/import",
+      "command": ["criminal-db", "--json", "import", "--criminal-only"]
+    },
+    {
+      "name": "criminal_db_search",
+      "description": "Search cases, statutes, or both",
+      "parameters": {
+        "query": "string",
+        "scope": "cases | statutes | all",
+        "type": "fts | hybrid",
+        "limit": "integer"
+      },
+      "command_template": "criminal-db --json search \"{query}\" --scope {scope} --type {type} --limit {limit}"
+    },
+    {
+      "name": "criminal_db_get",
+      "description": "Retrieve full case by neutral citation",
+      "command_template": "criminal-db --json get \"{citation}\""
+    },
+    {
+      "name": "criminal_db_statutes_get",
+      "description": "Retrieve Criminal Code section",
+      "command_template": "criminal-db --json statutes get {section}"
+    },
+    {
+      "name": "criminal_db_verify",
+      "description": "Check manifest and database consistency",
+      "command": ["criminal-db", "--json", "verify"]
+    },
+    {
+      "name": "criminal_db_validate",
+      "description": "Dry-run HTML parser QA without database writes",
+      "command_template": "criminal-db --json validate {path}"
+    }
+  ],
+  "http_api": {
+    "base_url": "http://127.0.0.1:8765",
+    "auth": "Bearer CRIMINAL_DB_API_TOKEN",
+    "endpoints": ["/health", "/search", "/get"]
+  }
+}

@@ -25,3 +25,10 @@ jobs:
 
       - name: Run tests
         run: pytest -q
+
+      - name: Ruff (new modules)
+        run: |
+          ruff check criminal_db/db/migrations.py criminal_db/verify.py \
+            criminal_db/search_unified.py criminal_db/server.py criminal_db/ops/ \
+            criminal_db/api.py tests/test_verify.py tests/test_backup.py \
+            tests/test_search_scope.py
