@@ -473,39 +473,181 @@ def index_cmd(
     default=None,
     help="Single SQLite file (default: both fulltext and headnotes)",
 )
+@click.option(
+    "--report",
+    is_flag=True,
+    help="Print excluded and borderline cases for manual QA review",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="With --report, classify without updating is_criminal in the database",
+)
 @click.pass_context
-def curate_cmd(ctx: click.Context, db_path: Optional[str]) -> None:
+def curate_cmd(
+    ctx: click.Context,
+    db_path: Optional[str],
+    report: bool,
+    dry_run: bool,
+) -> None:
     """Re-apply criminal-law curation rules to all stored cases.
 
     Edits ``data/index/overrides.yaml`` to force-include or exclude specific
     citations. Exclude entries take precedence over heuristics.
-    """
-    from .curation.apply import curate_database
 
+    Use ``--report`` to list excluded cases and borderline hits (possible false
+  positives/negatives). Add ``--dry-run`` to preview without writing flags.
+    """
     backend = _open_backend(db_path)
+    as_json = _ctx_json(ctx)
+    apply = not (report and dry_run)
     try:
-        if isinstance(backend, DatabaseRouter):
-            payload = backend.curate_all()
+        if report:
+            from .curation.report import audit_database, audit_router
+
+            if isinstance(backend, DatabaseRouter):
+                payload = audit_router(backend, apply=apply)
+            else:
+                rep = audit_database(backend, store="single", apply=apply)
+                payload = {
+                    "stores": {"single": rep.to_dict()},
+                    "total": {
+                        "total": rep.total,
+                        "criminal": rep.criminal,
+                        "excluded": rep.excluded,
+                        "borderline_excluded": rep.borderline_excluded,
+                        "borderline_included": rep.borderline_included,
+                        "status_changed": rep.status_changed,
+                    },
+                    "override_include": rep.override_include,
+                    "override_exclude": rep.override_exclude,
+                    "applied": apply,
+                }
         else:
-            payload = {"single": curate_database(backend).to_dict()}
+            from .curation.apply import curate_database
+
+            if isinstance(backend, DatabaseRouter):
+                payload = backend.curate_all()
+            else:
+                payload = {"single": curate_database(backend).to_dict()}
     finally:
         _close_backend(backend)
 
-    if _ctx_json(ctx):
+    if as_json:
         emit_json(payload)
         return
-    if isinstance(payload, dict) and "stores" in payload:
+
+    if report:
+        _print_curation_qa_report(payload, applied=apply)
+        return
+
+    if isinstance(payload, dict) and "stores" in payload and "total" not in payload:
         for store, rep in payload.items():
             console.print(
                 f"[bold]{store}[/]: {rep['criminal']} criminal, "
                 f"{rep['excluded']} excluded / {rep['total']} total"
             )
     else:
-        rep = payload["single"]
+        rep = payload.get("single", payload)
         console.print(
             f"{rep['criminal']} criminal, {rep['excluded']} excluded / "
             f"{rep['total']} total"
         )
+
+
+def _print_curation_qa_report(payload: dict, *, applied: bool) -> None:
+    """Rich tables for ``curate --report``."""
+    from rich.table import Table
+
+    totals = payload.get("total", {})
+    mode = "applied" if applied else "dry-run (no DB writes)"
+    console.print(
+        f"[bold]Curation QA[/] ({mode}): "
+        f"{totals.get('criminal', 0)} criminal, "
+        f"{totals.get('excluded', 0)} excluded / {totals.get('total', 0)} total"
+    )
+    console.print(
+        f"  borderline excluded (review for include): "
+        f"{totals.get('borderline_excluded', 0)}"
+    )
+    console.print(
+        f"  borderline included (review for exclude): "
+        f"{totals.get('borderline_included', 0)}"
+    )
+    if totals.get("status_changed"):
+        console.print(
+            f"  [yellow]status changed:[/] {totals['status_changed']} case(s)"
+        )
+    inc = payload.get("override_include") or []
+    exc = payload.get("override_exclude") or []
+    if inc:
+        console.print(f"  override include: {', '.join(inc)}")
+    if exc:
+        console.print(f"  override exclude: {', '.join(exc)}")
+
+    stores = payload.get("stores", {})
+    for store_name, store in stores.items():
+        if not isinstance(store, dict):
+            continue
+        borderline = store.get("borderline_cases") or []
+        excluded = store.get("excluded_cases") or []
+        changes = store.get("status_changes") or []
+        if not borderline and not excluded and not changes:
+            continue
+        console.print(f"\n[bold underline]{store_name}[/]")
+
+        if changes:
+            table = Table(title="Status changes")
+            table.add_column("citation")
+            table.add_column("was")
+            table.add_column("now")
+            table.add_column("reason")
+            for row in changes:
+                was = "criminal" if row.get("previous_is_criminal") else "excluded"
+                now = "criminal" if row.get("is_criminal") else "excluded"
+                table.add_row(
+                    row["canlii_ref"],
+                    was,
+                    now,
+                    row["reason"],
+                )
+            console.print(table)
+
+        if borderline:
+            table = Table(title="Borderline (manual review)")
+            table.add_column("citation")
+            table.add_column("kind")
+            table.add_column("court")
+            table.add_column("decision")
+            table.add_column("reason")
+            for row in borderline:
+                decision = "criminal" if row.get("is_criminal") else "excluded"
+                table.add_row(
+                    row["canlii_ref"],
+                    row.get("borderline_kind") or "—",
+                    row.get("court_code") or row.get("court") or "—",
+                    decision,
+                    row["reason"],
+                )
+            console.print(table)
+
+        if excluded and len(excluded) <= 40:
+            table = Table(title="Excluded")
+            table.add_column("citation")
+            table.add_column("court")
+            table.add_column("reason")
+            for row in excluded:
+                table.add_row(
+                    row["canlii_ref"],
+                    row.get("court_code") or row.get("court") or "—",
+                    row["reason"],
+                )
+            console.print(table)
+        elif excluded:
+            console.print(
+                f"  excluded: {len(excluded)} cases "
+                f"(use --json for full list)"
+            )
 
 
 # ── parse (offline) ────────────────────────────────────────────────────────

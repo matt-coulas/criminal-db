@@ -28,6 +28,7 @@ criminal-db verify
 | Parser QA (no DB) | `criminal-db validate path/to/file.html` |
 | Ingest new cases | `criminal-db ingest --criminal-only` |
 | Re-embed new paragraphs | `criminal-db embed` (skips existing vectors) |
+| Curation QA report | `criminal-db curate --report` (add `--dry-run` to preview) |
 | Consistency check | `criminal-db verify` |
 | Backup | `criminal-db backup db/backups` |
 | Restore | `criminal-db restore db/backups/criminal-db-backup-*.tar.gz` |
