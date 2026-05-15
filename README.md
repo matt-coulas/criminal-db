@@ -182,7 +182,8 @@ docs/
 
 ## Corpus build
 
-See [docs/CORPUS.md](docs/CORPUS.md) for the full offline ingest workflow and
+See [docs/CORPUS.md](docs/CORPUS.md) for the full offline ingest workflow,
+[docs/VALIDATION.md](docs/VALIDATION.md) for parser QA on saved HTML, and
 `pytest tests/test_eval.py` for a small search regression suite.
 
 ## License

@@ -96,6 +96,10 @@ def _classify_corpus(paragraphs: list[Paragraph]) -> str:
     if all(p.is_headnote for p in paragraphs):
         return "headnote"
     if not any(p.paragraph_num is not None for p in paragraphs):
+        # Unnumbered blocks from generic <p> extraction are still fulltext when
+        # they look like a substantive decision (not a short headnote summary).
+        if len(paragraphs) >= 2 and sum(len(p.text or "") for p in paragraphs) > 200:
+            return "fulltext"
         return "headnote"
     return "fulltext"
 
@@ -150,13 +154,19 @@ class CanLIIParser:
                     return f"{m.group('year')} {m.group('court')} {m.group('num')}"
                 if txt:
                     return txt
-        # Strategy 2: page title / h1 / hgroup.
+        # Strategy 2: meta tags (some exports / saved pages).
+        for tag in self.soup.find_all("meta"):
+            content = tag.get("content") or ""
+            m = _CITATION_RE.search(_clean(content))
+            if m:
+                return f"{m.group('year')} {m.group('court')} {m.group('num')}"
+        # Strategy 3: page title / h1 / hgroup.
         for selector in ("title", "h1", "h2", "h3"):
             for tag in self.soup.find_all(selector):
                 m = _CITATION_RE.search(_clean(tag.get_text()))
                 if m:
                     return f"{m.group('year')} {m.group('court')} {m.group('num')}"
-        # Strategy 3: anywhere in the document.
+        # Strategy 4: anywhere in the document.
         m = _CITATION_RE.search(_clean(self.soup.get_text()))
         if m:
             return f"{m.group('year')} {m.group('court')} {m.group('num')}"
@@ -407,7 +417,9 @@ class CanLIIParser:
     def _extract_generic_paragraphs(self) -> list[Paragraph]:
         """Fallback: every <p> inside the main body."""
         body = (
-            self.soup.find("div", class_=re.compile(r"\b(body|content|document|maincontent)\b"))
+            self.soup.find(class_=re.compile(r"\b(documentcontent|document-content)\b", re.I))
+            or self.soup.find(class_=re.compile(r"\b(body|content|document|maincontent)\b", re.I))
+            or self.soup.find("div", id=re.compile(r"\bdocument\b", re.I))
             or self.soup.body
             or self.soup
         )
