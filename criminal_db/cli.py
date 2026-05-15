@@ -20,6 +20,7 @@ from .catalog import (
 from .cli_output import emit_json, print_analyze, print_search_results
 from .db import Database, DatabaseRouter, init_default_databases
 from .db.schema import init_db
+from .curation.rules import classify_case
 from .harvester import (
     CanLIIFetcher,
     CanLIIParser,
@@ -139,8 +140,18 @@ def init_cmd(ctx: click.Context) -> None:
 @cli.command("ingest")
 @click.argument("paths", nargs=-1, type=click.Path(exists=True, dir_okay=True))
 @click.option("--force", is_flag=True, help="Re-parse even when SHA-256 is unchanged")
+@click.option(
+    "--criminal-only",
+    is_flag=True,
+    help="Skip cases that fail criminal-law curation rules",
+)
 @click.pass_context
-def ingest_cmd(ctx: click.Context, paths: tuple[str, ...], force: bool) -> None:
+def ingest_cmd(
+    ctx: click.Context,
+    paths: tuple[str, ...],
+    force: bool,
+    criminal_only: bool,
+) -> None:
     """Parse HTML under PATHS and store cases via the dual-database router.
 
     With no PATHS, ingests ``data/cases/fulltext``, ``data/cases/headnotes``,
@@ -163,17 +174,23 @@ def ingest_cmd(ctx: click.Context, paths: tuple[str, ...], force: bool) -> None:
 
     router = DatabaseRouter()
     try:
-        report = ingest_paths(roots, router=router, force=force)
+        report = ingest_paths(
+            roots, router=router, force=force, criminal_only=criminal_only
+        )
     finally:
         router.close()
 
     if _ctx_json(ctx):
         emit_json(report.to_dict())
         return
-    console.print(
-        f"[green]{report.ok} ok[/], [yellow]{report.skipped} skipped[/], "
-        f"[red]{report.failed} failed[/]"
-    )
+    parts = [
+        f"[green]{report.ok} ok[/]",
+        f"[yellow]{report.skipped} skipped[/]",
+        f"[red]{report.failed} failed[/]",
+    ]
+    if report.excluded:
+        parts.append(f"[dim]{report.excluded} excluded (non-criminal)[/]")
+    console.print(", ".join(parts))
 
 
 # ── catalog index ──────────────────────────────────────────────────────────
@@ -182,7 +199,7 @@ def ingest_cmd(ctx: click.Context, paths: tuple[str, ...], force: bool) -> None:
 @cli.command("index")
 @click.option(
     "--status",
-    type=click.Choice(["pending", "ok", "failed", "skipped"]),
+    type=click.Choice(["pending", "ok", "failed", "skipped", "excluded"]),
     default=None,
 )
 @click.option("--court", default=None, help="Filter by substring in citation")
@@ -228,6 +245,51 @@ def index_cmd(
     console.print(table)
 
 
+# ── curate ─────────────────────────────────────────────────────────────────
+
+
+@cli.command("curate")
+@click.option(
+    "--db",
+    "db_path",
+    default=None,
+    help="Single SQLite file (default: both fulltext and headnotes)",
+)
+@click.pass_context
+def curate_cmd(ctx: click.Context, db_path: Optional[str]) -> None:
+    """Re-apply criminal-law curation rules to all stored cases.
+
+    Edits ``data/index/overrides.yaml`` to force-include or exclude specific
+    citations. Exclude entries take precedence over heuristics.
+    """
+    from .curation.apply import curate_database
+
+    backend = _open_backend(db_path)
+    try:
+        if isinstance(backend, DatabaseRouter):
+            payload = backend.curate_all()
+        else:
+            payload = {"single": curate_database(backend).to_dict()}
+    finally:
+        _close_backend(backend)
+
+    if _ctx_json(ctx):
+        emit_json(payload)
+        return
+    if isinstance(payload, dict) and "stores" in payload:
+        for store, rep in payload.items():
+            console.print(
+                f"[bold]{store}[/]: {rep['criminal']} criminal, "
+                f"{rep['excluded']} excluded / {rep['total']} total"
+            )
+    else:
+        rep = payload["single"]
+        console.print(
+            f"{rep['criminal']} criminal, {rep['excluded']} excluded / "
+            f"{rep['total']} total"
+        )
+
+
 # ── parse (offline) ────────────────────────────────────────────────────────
 
 
@@ -245,6 +307,11 @@ def index_cmd(
     help="Print the parsed JSON instead of storing it in the database",
 )
 @click.option("--catalog/--no-catalog", default=True, help="Update manifest.json")
+@click.option(
+    "--criminal-only",
+    is_flag=True,
+    help="Do not store cases that fail criminal-law curation rules",
+)
 @click.pass_context
 def parse_cmd(
     ctx: click.Context,
@@ -252,6 +319,7 @@ def parse_cmd(
     db_path: Optional[str],
     no_store: bool,
     catalog: bool,
+    criminal_only: bool,
 ) -> None:
     """Parse CanLII HTML files that you've already downloaded."""
     if not paths:
@@ -297,6 +365,30 @@ def parse_cmd(
                     results.append(
                         {"path": str(path), "status": "skipped", "error": "no citation"}
                     )
+                    continue
+                decision = classify_case(
+                    payload["meta"], payload.get("paragraphs") or []
+                )
+                if criminal_only and not decision.is_criminal:
+                    if catalog:
+                        _manifest_record_html(
+                            path,
+                            status="excluded",
+                            canlii_ref=case.canlii_ref,
+                            parse_error=decision.reason,
+                        )
+                    parsed_fail += 1
+                    results.append(
+                        {
+                            "path": str(path),
+                            "status": "excluded",
+                            "reason": decision.reason,
+                        }
+                    )
+                    if not _ctx_json(ctx):
+                        console.print(
+                            f"[dim]exclude[/] {path.name}: {decision.reason}"
+                        )
                     continue
                 if isinstance(backend, DatabaseRouter):
                     case_id, store = backend.store_case(payload)
@@ -598,6 +690,11 @@ def embed_cmd(
     default=None,
     type=click.Choice(["fulltext", "headnote"], case_sensitive=False),
 )
+@click.option(
+    "--include-all",
+    is_flag=True,
+    help="Include cases marked non-criminal by curation rules",
+)
 @click.pass_context
 def search_cmd(
     ctx: click.Context,
@@ -609,6 +706,7 @@ def search_cmd(
     court: Optional[str],
     year: Optional[int],
     corpus: Optional[str],
+    include_all: bool,
 ) -> None:
     """Search with FTS5, vector similarity, or hybrid fusion."""
     backend = _open_backend(db_path)
@@ -616,7 +714,12 @@ def search_cmd(
     try:
         st = search_type.lower()
         common = dict(
-            limit=limit, court=court, year=year, corpus=corpus, offset=offset
+            limit=limit,
+            court=court,
+            year=year,
+            corpus=corpus,
+            offset=offset,
+            criminal_only=not include_all,
         )
         if isinstance(backend, DatabaseRouter):
             if st == "fts":
@@ -632,23 +735,40 @@ def search_cmd(
                 vector = Embedder().encode_one(query)
                 results = backend.search_hybrid(query, vector, **common)
         else:
+            criminal_only = not include_all
             if st == "fts":
                 results = backend.search_fts(
-                    query, limit=limit, court=court, year=year, corpus=corpus
+                    query,
+                    limit=limit,
+                    court=court,
+                    year=year,
+                    corpus=corpus,
+                    criminal_only=criminal_only,
                 )
             elif st == "vector":
                 from .embedding import Embedder
 
                 vector = Embedder().encode_one(query)
                 results = backend.search_vector(
-                    vector, limit=limit, court=court, year=year, corpus=corpus
+                    vector,
+                    limit=limit,
+                    court=court,
+                    year=year,
+                    corpus=corpus,
+                    criminal_only=criminal_only,
                 )
             else:
                 from .embedding import Embedder
 
                 vector = Embedder().encode_one(query)
                 results = backend.search_hybrid(
-                    query, vector, limit=limit, court=court, year=year, corpus=corpus
+                    query,
+                    vector,
+                    limit=limit,
+                    court=court,
+                    year=year,
+                    corpus=corpus,
+                    criminal_only=criminal_only,
                 )
     finally:
         _close_backend(backend)
@@ -662,6 +782,7 @@ def search_cmd(
             "limit": limit,
             "offset": offset,
             "corpus": corpus,
+            "criminal_only": not include_all,
         },
     )
 
@@ -699,12 +820,16 @@ def analyze_cmd(ctx: click.Context, db_path: Optional[str]) -> None:
                 },
                 "total": {
                     "cases": backend.case_count(),
+                    "criminal_cases": backend.criminal_case_count(),
+                    "excluded_cases": backend.excluded_case_count(),
                     "paragraphs": backend.paragraph_count(),
                     "ratio_paragraphs": backend.ratio_paragraph_count(),
                     "headnote_paragraphs": backend.headnote_paragraph_count(),
                     "embeddings": backend.embedding_count(),
                 },
             }
+            stats["stores"]["single"]["criminal_cases"] = backend.criminal_case_count()
+            stats["stores"]["single"]["excluded_cases"] = backend.excluded_case_count()
         print_analyze(stats, as_json=_ctx_json(ctx))
     finally:
         _close_backend(backend)

@@ -72,6 +72,18 @@ criminal-db --json search "voir dire" --type hybrid --limit 5
 database matching its parsed `corpus`. `search`, `embed`, and `analyze`
 (without `--db`) operate on **both** files and merge results.
 
+## Criminal-law curation
+
+Cases are tagged `is_criminal` using court-code heuristics, caption patterns
+(`R. v.`, `R. c.`, etc.), and optional overrides in
+`data/index/overrides.yaml`. **Search excludes non-criminal cases by default.**
+
+```bash
+criminal-db curate                  # re-apply rules to stored cases
+criminal-db ingest --criminal-only  # skip non-criminal at ingest
+criminal-db search "query" --include-all
+```
+
 ## Catalog (`data/index/manifest.json`)
 
 The manifest tracks every HTML source: SHA-256, parse status, target store, and

@@ -10,7 +10,7 @@ from typing import Any, Literal, Optional
 
 from .. import config
 
-EntryStatus = Literal["pending", "ok", "failed", "skipped"]
+EntryStatus = Literal["pending", "ok", "failed", "skipped", "excluded"]
 StoreName = Literal["fulltext", "headnotes"]
 
 
@@ -20,6 +20,8 @@ def _now_iso() -> str:
 
 def ensure_catalog_dirs() -> None:
     """Create ``data/index`` and an empty manifest if missing."""
+    from ..curation.overrides import ensure_overrides_template
+
     config.INDEX_DIR.mkdir(parents=True, exist_ok=True)
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
     config.RAW_DIR.mkdir(parents=True, exist_ok=True)
@@ -27,6 +29,7 @@ def ensure_catalog_dirs() -> None:
     (config.CASES_DIR / "headnotes").mkdir(parents=True, exist_ok=True)
     if not config.MANIFEST_PATH.exists():
         Manifest().save()
+    ensure_overrides_template()
 
 
 @dataclass

@@ -70,6 +70,27 @@ hits = router.search_hybrid("unreasonable search", query_vector, limit=5)
 router.close()
 ```
 
+## Criminal-law curation
+
+By default, **search only returns criminal cases** (`is_criminal = 1`). Cases are
+classified at ingest/parse time using court codes, caption heuristics (`R. v.`,
+etc.), and manual overrides in `data/index/overrides.yaml`.
+
+```bash
+criminal-db --json curate
+criminal-db search "query" --include-all    # include non-criminal cases
+criminal-db ingest --criminal-only          # skip non-criminal at ingest
+```
+
+Override example (`data/index/overrides.yaml`):
+
+```yaml
+include:
+  - "2024 FCA 88"
+exclude:
+  - "2024 SCC 999"
+```
+
 ## Constraints for agents
 
 - Do **not** disable `CRIMINAL_DB_RESPECT_ROBOTS=0` to bulk-scrape CanLII.

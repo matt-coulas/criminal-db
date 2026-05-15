@@ -110,6 +110,7 @@ class DatabaseRouter:
         year: Optional[int] = None,
         corpus: Optional[str] = None,
         offset: int = 0,
+        criminal_only: bool = True,
     ) -> list[SearchResult]:
         per_store = max(limit + offset, limit) * 2
         combined: list[SearchResult] = []
@@ -120,6 +121,7 @@ class DatabaseRouter:
                 court=court,
                 year=year,
                 corpus=corpus,
+                criminal_only=criminal_only,
             )
             combined.extend(self._tag_results(hits, store=store))
         merged = _merge_ranked(combined, limit=per_store)
@@ -134,6 +136,7 @@ class DatabaseRouter:
         year: Optional[int] = None,
         corpus: Optional[str] = None,
         offset: int = 0,
+        criminal_only: bool = True,
     ) -> list[SearchResult]:
         per_store = max(limit + offset, limit) * 2
         combined: list[SearchResult] = []
@@ -144,6 +147,7 @@ class DatabaseRouter:
                 court=court,
                 year=year,
                 corpus=corpus,
+                criminal_only=criminal_only,
             )
             combined.extend(self._tag_results(hits, store=store))
         merged = _merge_ranked(combined, limit=per_store)
@@ -159,6 +163,7 @@ class DatabaseRouter:
         year: Optional[int] = None,
         corpus: Optional[str] = None,
         offset: int = 0,
+        criminal_only: bool = True,
         fts_weight: float = config.HYBRID_FTS_WEIGHT,
     ) -> list[SearchResult]:
         per_store = max(limit + offset, limit) * 2
@@ -171,6 +176,7 @@ class DatabaseRouter:
                 court=court,
                 year=year,
                 corpus=corpus,
+                criminal_only=criminal_only,
                 fts_weight=fts_weight,
             )
             combined.extend(self._tag_results(hits, store=store))
@@ -210,6 +216,8 @@ class DatabaseRouter:
         stores: dict[str, Any] = {}
         totals = {
             "cases": 0,
+            "criminal_cases": 0,
+            "excluded_cases": 0,
             "paragraphs": 0,
             "ratio_paragraphs": 0,
             "headnote_paragraphs": 0,
@@ -220,6 +228,8 @@ class DatabaseRouter:
             stats = {
                 "path": str(db.db_path),
                 "cases": db.case_count(),
+                "criminal_cases": db.criminal_case_count(),
+                "excluded_cases": db.excluded_case_count(),
                 "paragraphs": db.paragraph_count(),
                 "ratio_paragraphs": db.ratio_paragraph_count(),
                 "headnote_paragraphs": db.headnote_paragraph_count(),
@@ -229,11 +239,22 @@ class DatabaseRouter:
             }
             stores[store] = stats
             totals["cases"] += stats["cases"]
+            totals["criminal_cases"] += stats["criminal_cases"]
+            totals["excluded_cases"] += stats["excluded_cases"]
             totals["paragraphs"] += stats["paragraphs"]
             totals["ratio_paragraphs"] += stats["ratio_paragraphs"]
             totals["headnote_paragraphs"] += stats["headnote_paragraphs"]
             totals["embeddings"] += stats["embeddings"]
         return {"stores": stores, "total": totals}
+
+    def curate_all(self) -> dict[str, Any]:
+        """Re-apply curation rules to every case in both databases."""
+        from ..curation.apply import curate_database
+
+        reports = {}
+        for store in ("fulltext", "headnotes"):
+            reports[store] = curate_database(self._db(store)).to_dict()
+        return reports
 
     def close(self) -> None:
         if self._fulltext is not None:

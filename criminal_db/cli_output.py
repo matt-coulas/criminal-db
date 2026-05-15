@@ -71,13 +71,21 @@ def print_analyze(stats: dict[str, Any], *, as_json: bool) -> None:
         return
     total = stats["total"]
     console.print(f"[bold]cases (total):[/]     {total['cases']}")
+    if "criminal_cases" in total:
+        console.print(
+            f"  criminal:    {total['criminal_cases']}  "
+            f"excluded: {total.get('excluded_cases', 0)}"
+        )
     console.print(f"[bold]paragraphs (total):[/] {total['paragraphs']}")
     console.print(f"  ratio:       {total['ratio_paragraphs']}")
     console.print(f"  headnote:    {total['headnote_paragraphs']}")
     console.print(f"  embeddings:  {total['embeddings']}/{total['paragraphs']}")
     for store, s in stats["stores"].items():
         console.print(f"\n[bold]{store}[/] ({s['path']})")
-        console.print(f"  cases: {s['cases']}  paragraphs: {s['paragraphs']}")
+        line = f"  cases: {s['cases']}  paragraphs: {s['paragraphs']}"
+        if "criminal_cases" in s:
+            line += f"  criminal: {s['criminal_cases']}  excluded: {s['excluded_cases']}"
+        console.print(line)
         if s["by_court"]:
             table = Table()
             table.add_column("court")

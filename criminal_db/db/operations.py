@@ -27,6 +27,7 @@ from typing import Any, Iterable, Optional, Sequence, Union
 import sqlite_vec
 
 from .. import config
+from ..curation.rules import CurationDecision, classify_case
 from .schema import VectorExtensionUnavailable, init_db, open_connection
 
 
@@ -277,7 +278,50 @@ class Database:
                     ],
                 )
 
+            self.apply_curation_for_case(case_id, case_json)
+
         return case_id
+
+    def set_case_curation(
+        self,
+        case_id: int,
+        *,
+        is_criminal: bool,
+        exclusion_reason: Optional[str] = None,
+    ) -> None:
+        with self.conn:
+            self.conn.execute(
+                "UPDATE cases SET is_criminal = ?, exclusion_reason = ?, "
+                "updated_at = datetime('now') WHERE id = ?",
+                (int(is_criminal), exclusion_reason, case_id),
+            )
+
+    def apply_curation_for_case(
+        self, case_id: int, case_json: dict
+    ) -> CurationDecision:
+        meta = case_json.get("meta") or {}
+        paragraphs = case_json.get("paragraphs") or []
+        decision = classify_case(meta, paragraphs)
+        self.set_case_curation(
+            case_id,
+            is_criminal=decision.is_criminal,
+            exclusion_reason=None if decision.is_criminal else decision.reason,
+        )
+        return decision
+
+    def criminal_case_count(self) -> int:
+        return int(
+            self.conn.execute(
+                "SELECT COUNT(*) FROM cases WHERE is_criminal = 1"
+            ).fetchone()[0]
+        )
+
+    def excluded_case_count(self) -> int:
+        return int(
+            self.conn.execute(
+                "SELECT COUNT(*) FROM cases WHERE is_criminal = 0"
+            ).fetchone()[0]
+        )
 
     # ── reads ───────────────────────────────────────────────────────────────
 
@@ -347,6 +391,7 @@ class Database:
         court: Optional[str] = None,
         year: Optional[int] = None,
         corpus: Optional[str] = None,
+        criminal_only: bool = True,
     ) -> list[SearchResult]:
         """FTS5 search across paragraphs, optionally filtered by case metadata.
 
@@ -372,6 +417,8 @@ class Database:
         if corpus:
             sql.append("AND c.corpus = ?")
             params.append(corpus)
+        if criminal_only:
+            sql.append("AND c.is_criminal = 1")
         sql.append("ORDER BY fts.rank LIMIT ?")
         params.append(int(limit))
 
@@ -386,6 +433,7 @@ class Database:
         court: Optional[str] = None,
         year: Optional[int] = None,
         corpus: Optional[str] = None,
+        criminal_only: bool = True,
     ) -> list[SearchResult]:
         """KNN search over paragraph embeddings.
 
@@ -411,6 +459,7 @@ class Database:
               AND (? IS NULL OR c.court = ?)
               AND (? IS NULL OR c.court_year = ?)
               AND (? IS NULL OR c.corpus = ?)
+              AND (? = 0 OR c.is_criminal = 1)
             ORDER BY pe.distance
             """,
             (
@@ -419,6 +468,7 @@ class Database:
                 court, court,
                 year, year,
                 corpus, corpus,
+                0 if criminal_only else 1,
             ),
         ).fetchall()
         return [_row_to_result(row, source="vector") for row in rows]
@@ -432,6 +482,7 @@ class Database:
         court: Optional[str] = None,
         year: Optional[int] = None,
         corpus: Optional[str] = None,
+        criminal_only: bool = True,
         fts_weight: float = config.HYBRID_FTS_WEIGHT,
     ) -> list[SearchResult]:
         """Hybrid FTS + vector with normalised score fusion.
@@ -440,10 +491,20 @@ class Database:
         normalised within each side, then combined with a convex weight.
         """
         fts_results = self.search_fts(
-            query, limit=limit * 2, court=court, year=year, corpus=corpus
+            query,
+            limit=limit * 2,
+            court=court,
+            year=year,
+            corpus=corpus,
+            criminal_only=criminal_only,
         )
         vec_results = self.search_vector(
-            vector, limit=limit * 2, court=court, year=year, corpus=corpus
+            vector,
+            limit=limit * 2,
+            court=court,
+            year=year,
+            corpus=corpus,
+            criminal_only=criminal_only,
         )
 
         def _normalise(items: list[SearchResult]) -> dict[int, float]:

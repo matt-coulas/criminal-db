@@ -108,10 +108,13 @@ CREATE TABLE IF NOT EXISTS cases (
     source_url         TEXT,
     fetched_at         TEXT,    -- ISO timestamp
     created_at         TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
+    is_criminal        INTEGER NOT NULL DEFAULT 1,
+    exclusion_reason   TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_cases_court_year  ON cases(court, court_year);
+CREATE INDEX IF NOT EXISTS idx_cases_is_criminal ON cases(is_criminal);
 CREATE INDEX IF NOT EXISTS idx_cases_decided     ON cases(decided_date);
 CREATE INDEX IF NOT EXISTS idx_cases_corpus      ON cases(corpus);
 
@@ -166,6 +169,20 @@ END;
 """
 
 
+def _migrate_schema(conn: sqlite3.Connection) -> None:
+    """Add columns introduced after the initial schema (idempotent)."""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(cases)")}
+    if "is_criminal" not in cols:
+        conn.execute(
+            "ALTER TABLE cases ADD COLUMN is_criminal INTEGER NOT NULL DEFAULT 1"
+        )
+    if "exclusion_reason" not in cols:
+        conn.execute("ALTER TABLE cases ADD COLUMN exclusion_reason TEXT")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cases_is_criminal ON cases(is_criminal)"
+    )
+
+
 def init_db(db_path: PathLike, *, embedding_dim: int | None = None) -> Path:
     """Create the schema in ``db_path`` if it does not already exist.
 
@@ -179,6 +196,7 @@ def init_db(db_path: PathLike, *, embedding_dim: int | None = None) -> Path:
     conn, vec_ok = open_connection(db_path)
     try:
         conn.executescript(_DDL)
+        _migrate_schema(conn)
         if vec_ok:
             # vec0 takes the dim at table-creation time and stores it in
             # sqlite-vec's metadata, so it must match what we embed with.

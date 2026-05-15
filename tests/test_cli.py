@@ -74,7 +74,17 @@ def test_search_no_results(tmp_path, fixtures_dir):
 def test_help_renders():
     result = _invoke(["--help"])
     assert result.exit_code == 0
-    for sub in ("init", "ingest", "index", "parse", "harvest", "embed", "search", "analyze"):
+    for sub in (
+        "init",
+        "ingest",
+        "index",
+        "curate",
+        "parse",
+        "harvest",
+        "embed",
+        "search",
+        "analyze",
+    ):
         assert sub in result.output
 
 

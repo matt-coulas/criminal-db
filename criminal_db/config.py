@@ -27,6 +27,7 @@ DEFAULT_DB: Path = FULLTEXT_DB
 # Catalog manifest (ingest / harvest bookkeeping).
 INDEX_DIR: Path = DATA_DIR / "index"
 MANIFEST_PATH: Path = INDEX_DIR / "manifest.json"
+OVERRIDES_PATH: Path = INDEX_DIR / "overrides.yaml"
 
 # ── Harvester ───────────────────────────────────────────────────────────────
 

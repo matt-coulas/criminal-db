@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
+from ..curation.rules import classify_case
 from ..db.router import DatabaseRouter
 from ..harvester.parser import CanLIIParser, export_case_to_json
 from .manifest import CatalogEntry, Manifest, ensure_catalog_dirs
@@ -47,6 +48,7 @@ def collect_html_files(paths: list[Path]) -> list[Path]:
 class IngestReport:
     ok: int = 0
     skipped: int = 0
+    excluded: int = 0
     failed: int = 0
     entries: list[CatalogEntry] = field(default_factory=list)
 
@@ -54,6 +56,7 @@ class IngestReport:
         return {
             "ok": self.ok,
             "skipped": self.skipped,
+            "excluded": self.excluded,
             "failed": self.failed,
             "entries": [e.to_dict() for e in self.entries],
         }
@@ -65,6 +68,7 @@ def ingest_paths(
     router: DatabaseRouter,
     manifest: Optional[Manifest] = None,
     force: bool = False,
+    criminal_only: bool = False,
     on_progress: Optional[Callable[[CatalogEntry], None]] = None,
 ) -> IngestReport:
     """Parse HTML files, store via ``router``, and update ``manifest``."""
@@ -113,15 +117,24 @@ def ingest_paths(
                 report.skipped += 1
             else:
                 payload = export_case_to_json(case)
-                case_id, store = router.store_case(payload)
-                entry.status = "ok"
-                entry.canlii_ref = case.canlii_ref
-                entry.corpus = case.corpus
-                entry.case_id = case_id
-                entry.store = store
-                entry.source_url = case.source_url
-                entry.parsed_at = now
-                report.ok += 1
+                decision = classify_case(
+                    payload["meta"], payload.get("paragraphs") or []
+                )
+                if criminal_only and not decision.is_criminal:
+                    entry.status = "excluded"
+                    entry.canlii_ref = case.canlii_ref
+                    entry.parse_error = decision.reason
+                    report.excluded += 1
+                else:
+                    case_id, store = router.store_case(payload)
+                    entry.status = "ok"
+                    entry.canlii_ref = case.canlii_ref
+                    entry.corpus = case.corpus
+                    entry.case_id = case_id
+                    entry.store = store
+                    entry.source_url = case.source_url
+                    entry.parsed_at = now
+                    report.ok += 1
         except Exception as exc:
             entry.status = "failed"
             entry.parse_error = str(exc)
