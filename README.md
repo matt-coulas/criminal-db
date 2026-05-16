@@ -3,7 +3,7 @@
 A local-first Canadian criminal-law case database with hybrid full-text (FTS5)
 and semantic (sqlite-vec) search over paragraph-level case content.
 
-> **Status:** 0.2 — local-first research tool. See [docs/RUNBOOK.md](docs/RUNBOOK.md)
+> **Status:** 0.3 — local-first research tool. See [docs/RUNBOOK.md](docs/RUNBOOK.md)
 > for operations and [CHANGELOG.md](CHANGELOG.md) for releases.
 
 ## What it does
@@ -30,21 +30,179 @@ the `embed` extra.
 
 Optional terminal UI: `pip install -e ".[tui]"` then `criminal-db tui`.
 
-## Docker (API)
+## Install with Docker
 
-Persistent corpus and SQLite live on the host (`data/`, `db/`, `models/`).
-Compose runs the JSON HTTP API on port **8765** by default (no browser UI yet).
+The image includes the CLI with **embed**, **pdf**, and **tui** extras. Your
+**corpus and SQLite files stay on the host** (mounted volumes)—the image does not
+ship case law HTML or databases.
+
+Compose runs the **JSON HTTP API** (`criminal-db serve`) on port **8765** by
+default. There is no browser web UI yet; use the API, `docker compose run …`
+CLI commands, or the **TUI** (`docker compose --profile tui run --rm tui`).
+
+More detail: [docs/DOCKER.md](docs/DOCKER.md) · CI publish:
+[docs/GITHUB_ACTIONS_DOCKER.md](docs/GITHUB_ACTIONS_DOCKER.md)
+
+### Prerequisites
+
+- Docker Engine 24+ and Docker Compose v2
+- Empty host directories (or your existing corpus):
 
 ```bash
-cp .env.docker.example .env
 mkdir -p data db models
+```
+
+### Quick start (build from this repo)
+
+```bash
+git clone https://github.com/matt-coulas/criminal-db.git
+cd criminal-db
+cp .env.docker.example .env   # edit paths and ports if needed
 docker compose up -d api
 curl -s http://127.0.0.1:8765/health
 ```
 
-Interactive TUI in the container: `docker compose --profile tui run --rm tui`.
-Full details: [docs/DOCKER.md](docs/DOCKER.md). Publish images via CI:
-[docs/GITHUB_ACTIONS_DOCKER.md](docs/GITHUB_ACTIONS_DOCKER.md).
+First start runs `criminal-db init` automatically when `db/*.db` are missing.
+
+### Quick start (pull a published image)
+
+Replace `OWNER` with your GitHub username/org or Docker Hub username:
+
+```bash
+docker pull ghcr.io/OWNER/criminal-db:latest
+# or: docker pull OWNER/criminal-db:latest
+```
+
+Use `image:` instead of `build:` in the compose example below.
+
+### Corpus workflow in Docker
+
+```bash
+# Copy permitted HTML into ./data/cases/fulltext or ./data/import/html
+docker compose run --rm api criminal-db ingest --criminal-only
+docker compose run --rm api criminal-db embed --scope all
+docker compose run --rm api criminal-db search "section 8 charter" --type hybrid
+```
+
+API examples:
+
+```bash
+curl "http://127.0.0.1:8765/search?q=voir+dire&scope=all&type=fts"
+curl -H "Authorization: Bearer YOUR_TOKEN" "http://127.0.0.1:8765/get?citation=2024+SCC+1"
+```
+
+Set `CRIMINAL_DB_API_TOKEN` in `.env` when exposing the API beyond localhost.
+
+### Environment variables
+
+Copy [.env.docker.example](.env.docker.example) to `.env` beside `compose.yaml`.
+Compose substitutes `${VAR:-default}` into the file below.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CRIMINAL_DB_HOST_PORT` | `8765` | Host port published to the API |
+| `CRIMINAL_DB_DATA_DIR` | `./data` | Host path → `/app/data` (HTML, manifest, import) |
+| `CRIMINAL_DB_DB_DIR` | `./db` | Host path → `/app/db` (SQLite files) |
+| `CRIMINAL_DB_MODELS_DIR` | `./models` | Host path → `/app/models` (embedding cache) |
+| `CRIMINAL_DB_API_HOST` | `0.0.0.0` | Bind address inside the container |
+| `CRIMINAL_DB_API_PORT` | `8765` | Listen port inside the container |
+| `CRIMINAL_DB_API_TOKEN` | *(empty)* | If set, requires `Authorization: Bearer …` or `X-API-Token` |
+| `CRIMINAL_DB_EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` | Sentence-transformers model id |
+| `CRIMINAL_DB_EMBEDDING_DIM` | `384` | Vector size (must match model) |
+| `CRIMINAL_DB_MAX_QUERY_LEN` | `500` | Max API / FTS query length |
+| `CRIMINAL_DB_RESPECT_ROBOTS` | `1` | `1` = obey CanLII `robots.txt` for harvest |
+| `CRIMINAL_DB_USER_AGENT` | *(built-in)* | Harvester User-Agent string |
+| `CRIMINAL_DB_DELAY_MIN` | `5.0` | Minimum delay between harvest requests (seconds) |
+| `CRIMINAL_DB_DELAY_MAX` | `9.0` | Maximum harvest delay (seconds) |
+
+Use absolute host paths in production, e.g. `CRIMINAL_DB_DATA_DIR=/srv/criminal-db/data`.
+
+### Example `compose.yaml` (all customization options)
+
+Save as `compose.yaml` next to `.env`, or merge with the
+[compose.yaml](compose.yaml) shipped in this repo.
+
+```yaml
+# criminal-db — full Compose example with every documented option.
+# Requires .env (see .env.docker.example) or export the variables below.
+
+services:
+  api:
+    # --- Image source (use ONE of build or image) ---
+    build: .                                    # build from Dockerfile in repo root
+    image: criminal-db:local                   # local tag after build
+    # image: ghcr.io/OWNER/criminal-db:latest  # published GHCR image
+    # image: OWNER/criminal-db:latest          # published Docker Hub image
+
+    restart: unless-stopped
+
+    ports:
+      # host:container — container port must match CRIMINAL_DB_API_PORT
+      - "${CRIMINAL_DB_HOST_PORT:-8765}:${CRIMINAL_DB_API_PORT:-8765}"
+
+    environment:
+      CRIMINAL_DB_API_HOST: ${CRIMINAL_DB_API_HOST:-0.0.0.0}
+      CRIMINAL_DB_API_PORT: ${CRIMINAL_DB_API_PORT:-8765}
+      CRIMINAL_DB_API_TOKEN: ${CRIMINAL_DB_API_TOKEN:-}
+      CRIMINAL_DB_EMBEDDING_MODEL: ${CRIMINAL_DB_EMBEDDING_MODEL:-BAAI/bge-small-en-v1.5}
+      CRIMINAL_DB_EMBEDDING_DIM: ${CRIMINAL_DB_EMBEDDING_DIM:-384}
+      CRIMINAL_DB_MAX_QUERY_LEN: ${CRIMINAL_DB_MAX_QUERY_LEN:-500}
+      CRIMINAL_DB_RESPECT_ROBOTS: ${CRIMINAL_DB_RESPECT_ROBOTS:-1}
+      CRIMINAL_DB_USER_AGENT: ${CRIMINAL_DB_USER_AGENT:-}
+      CRIMINAL_DB_DELAY_MIN: ${CRIMINAL_DB_DELAY_MIN:-5.0}
+      CRIMINAL_DB_DELAY_MAX: ${CRIMINAL_DB_DELAY_MAX:-9.0}
+
+    volumes:
+      - ${CRIMINAL_DB_DATA_DIR:-./data}:/app/data
+      - ${CRIMINAL_DB_DB_DIR:-./db}:/app/db
+      - ${CRIMINAL_DB_MODELS_DIR:-./models}:/app/models
+
+    entrypoint: ["docker-entrypoint.sh"]
+    command: ["criminal-db", "serve"]
+
+    # Optional health check:
+    # healthcheck:
+    #   test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health')"]
+    #   interval: 30s
+    #   timeout: 5s
+    #   retries: 3
+    #   start_period: 40s
+
+  tui:
+    profiles: [tui]
+    build: .
+    image: criminal-db:local
+    stdin_open: true
+    tty: true
+    environment:
+      CRIMINAL_DB_API_HOST: ${CRIMINAL_DB_API_HOST:-127.0.0.1}
+      CRIMINAL_DB_API_PORT: ${CRIMINAL_DB_API_PORT:-8765}
+      CRIMINAL_DB_API_TOKEN: ${CRIMINAL_DB_API_TOKEN:-}
+      CRIMINAL_DB_EMBEDDING_MODEL: ${CRIMINAL_DB_EMBEDDING_MODEL:-BAAI/bge-small-en-v1.5}
+      CRIMINAL_DB_EMBEDDING_DIM: ${CRIMINAL_DB_EMBEDDING_DIM:-384}
+      CRIMINAL_DB_RESPECT_ROBOTS: ${CRIMINAL_DB_RESPECT_ROBOTS:-1}
+      CRIMINAL_DB_USER_AGENT: ${CRIMINAL_DB_USER_AGENT:-}
+      CRIMINAL_DB_DELAY_MIN: ${CRIMINAL_DB_DELAY_MIN:-5.0}
+      CRIMINAL_DB_DELAY_MAX: ${CRIMINAL_DB_DELAY_MAX:-9.0}
+    volumes:
+      - ${CRIMINAL_DB_DATA_DIR:-./data}:/app/data
+      - ${CRIMINAL_DB_DB_DIR:-./db}:/app/db
+      - ${CRIMINAL_DB_MODELS_DIR:-./models}:/app/models
+    entrypoint: ["docker-entrypoint.sh"]
+    command: ["criminal-db", "tui"]
+```
+
+**Commands:**
+
+```bash
+docker compose up -d api                              # API in background
+docker compose --profile tui run --rm tui             # full-screen TUI
+docker compose run --rm api criminal-db verify        # one-off CLI
+docker compose pull && docker compose up -d api       # after publishing a new image
+```
+
+Mount only corpus you have rights to use. See
+[docs/COPYRIGHT_AND_REDISTRIBUTION.md](docs/COPYRIGHT_AND_REDISTRIBUTION.md).
 
 ## Quick start
 

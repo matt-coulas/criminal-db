@@ -3,6 +3,13 @@
 All notable changes to the **criminal-db** software are documented here. Corpus
 content in `data/` and `db/` is not part of releases.
 
+## [0.3.1] - 2026-05-16
+
+### Added
+
+- README: full Docker install guide, env var table, annotated `compose.yaml` example
+- [docs/GITHUB_ACTIONS_DOCKER.md](docs/GITHUB_ACTIONS_DOCKER.md) and GHCR/Docker Hub publish workflows
+
 ## [0.3.0] - 2026-05-16
 
 ### Added
