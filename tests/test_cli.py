@@ -95,6 +95,7 @@ def test_help_renders():
         "search",
         "analyze",
         "statutes",
+        "tui",
     ):
         assert sub in result.output
 

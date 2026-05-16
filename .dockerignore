@@ -1,22 +1,38 @@
+# Git and local tooling
 .git
+.gitignore
 .github
-.venv
-venv
-__pycache__
-*.pyc
 .pytest_cache
 .mypy_cache
 .ruff_cache
 htmlcov
 .coverage
-data/
-db/
-models/
-*.db
-*.db-*
+
+# Virtual environments
+venv
+.venv
+env
+
+# Host corpus and databases (mount at runtime; never bake into image)
+data
+db
+models
+.cache
+
+# Secrets
+.env
+.env.local
+.env.*
+
+# IDE / OS
+.idea
+.vscode
 .DS_Store
-uv.lock
-agent-transcripts
-terminals
+*.swp
+*.swo
+
+# Docs-only / dev (not needed in runtime image)
+tests
+docs
 *.md
 !README.md

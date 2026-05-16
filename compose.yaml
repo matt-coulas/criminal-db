@@ -1,81 +1,46 @@
-# criminal-db — Docker Compose
-#
-# Quick start:
-#   cp .env.docker.example .env
-#   mkdir -p data db models
-#   docker compose up -d api          # JSON HTTP API
-#   docker compose run --rm tui         # interactive TUI
-#   docker compose run --rm cli init    # one-off CLI
-
-name: criminal-db
+# criminal-db — JSON HTTP API with persisted data/, db/, and models/ volumes.
+# TUI: docker compose run --rm tui   (interactive; separate from the API service)
 
 services:
   api:
     build: .
     image: criminal-db:local
-    container_name: criminal-db-api
-    restart: unless-stopped
     ports:
-      - "${API_PORT:-8765}:${CRIMINAL_DB_API_PORT:-8765}"
-      # Reserved for a future web UI (no service yet)
-      - "${WEB_UI_PORT:-8080}:8080"
+      - "${CRIMINAL_DB_HOST_PORT:-8765}:${CRIMINAL_DB_API_PORT:-8765}"
     environment:
-      CRIMINAL_DB_DATA_DIR: /data
-      CRIMINAL_DB_DB_DIR: /db
-      CRIMINAL_DB_MODELS_DIR: /models
-      CRIMINAL_DB_API_HOST: 0.0.0.0
+      CRIMINAL_DB_API_HOST: ${CRIMINAL_DB_API_HOST:-0.0.0.0}
       CRIMINAL_DB_API_PORT: ${CRIMINAL_DB_API_PORT:-8765}
-      CRIMINAL_DB_API_TOKEN: ${API_TOKEN:-}
-      CRIMINAL_DB_EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-small-en-v1.5}
-      CRIMINAL_DB_MAX_QUERY_LEN: ${MAX_QUERY_LEN:-500}
-      CRIMINAL_DB_RESPECT_ROBOTS: ${RESPECT_ROBOTS:-1}
+      CRIMINAL_DB_API_TOKEN: ${CRIMINAL_DB_API_TOKEN:-}
+      CRIMINAL_DB_USER_AGENT: ${CRIMINAL_DB_USER_AGENT:-}
+      CRIMINAL_DB_RESPECT_ROBOTS: ${CRIMINAL_DB_RESPECT_ROBOTS:-1}
+      CRIMINAL_DB_DELAY_MIN: ${CRIMINAL_DB_DELAY_MIN:-5.0}
+      CRIMINAL_DB_DELAY_MAX: ${CRIMINAL_DB_DELAY_MAX:-9.0}
+      CRIMINAL_DB_EMBEDDING_MODEL: ${CRIMINAL_DB_EMBEDDING_MODEL:-BAAI/bge-small-en-v1.5}
+      CRIMINAL_DB_EMBEDDING_DIM: ${CRIMINAL_DB_EMBEDDING_DIM:-384}
+      CRIMINAL_DB_MAX_QUERY_LEN: ${CRIMINAL_DB_MAX_QUERY_LEN:-500}
     volumes:
-      - ${CORPUS_DATA_PATH:-./data}:/data
-      - ${CORPUS_DB_PATH:-./db}:/db
-      - ${CORPUS_MODELS_PATH:-./models}:/models
-    command: ["criminal-db", "serve", "--host", "0.0.0.0", "--port", "8765"]
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "curl",
-          "-sf",
-          "http://127.0.0.1:8765/health",
-        ]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 90s
+      - ${CRIMINAL_DB_DATA_DIR:-./data}:/app/data
+      - ${CRIMINAL_DB_DB_DIR:-./db}:/app/db
+      - ${CRIMINAL_DB_MODELS_DIR:-./models}:/app/models
+    command: ["criminal-db", "serve"]
+    restart: unless-stopped
 
   tui:
+    profiles: [tui]
     build: .
     image: criminal-db:local
-    profiles: ["tui"]
     stdin_open: true
     tty: true
     environment:
-      CRIMINAL_DB_DATA_DIR: /data
-      CRIMINAL_DB_DB_DIR: /db
-      CRIMINAL_DB_MODELS_DIR: /models
-      TERM: ${TERM:-xterm-256color}
+      CRIMINAL_DB_API_HOST: ${CRIMINAL_DB_API_HOST:-127.0.0.1}
+      CRIMINAL_DB_API_PORT: ${CRIMINAL_DB_API_PORT:-8765}
+      CRIMINAL_DB_API_TOKEN: ${CRIMINAL_DB_API_TOKEN:-}
+      CRIMINAL_DB_RESPECT_ROBOTS: ${CRIMINAL_DB_RESPECT_ROBOTS:-1}
+      CRIMINAL_DB_EMBEDDING_MODEL: ${CRIMINAL_DB_EMBEDDING_MODEL:-BAAI/bge-small-en-v1.5}
+      CRIMINAL_DB_EMBEDDING_DIM: ${CRIMINAL_DB_EMBEDDING_DIM:-384}
     volumes:
-      - ${CORPUS_DATA_PATH:-./data}:/data
-      - ${CORPUS_DB_PATH:-./db}:/db
-      - ${CORPUS_MODELS_PATH:-./models}:/models
-    entrypoint: ["criminal-db-tui"]
-
-  cli:
-    build: .
-    image: criminal-db:local
-    profiles: ["cli"]
-    environment:
-      CRIMINAL_DB_DATA_DIR: /data
-      CRIMINAL_DB_DB_DIR: /db
-      CRIMINAL_DB_MODELS_DIR: /models
-      CRIMINAL_DB_API_TOKEN: ${API_TOKEN:-}
-    volumes:
-      - ${CORPUS_DATA_PATH:-./data}:/data
-      - ${CORPUS_DB_PATH:-./db}:/db
-      - ${CORPUS_MODELS_PATH:-./models}:/models
-    entrypoint: ["criminal-db"]
-    command: ["--help"]
+      - ${CRIMINAL_DB_DATA_DIR:-./data}:/app/data
+      - ${CRIMINAL_DB_DB_DIR:-./db}:/app/db
+      - ${CRIMINAL_DB_MODELS_DIR:-./models}:/app/models
+    entrypoint: ["docker-entrypoint.sh"]
+    command: ["criminal-db", "tui"]

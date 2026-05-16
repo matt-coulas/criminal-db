@@ -25,26 +25,25 @@ source venv/bin/activate
 pip install -e ".[embed,dev]"
 ```
 
-### Docker Compose
+Embeddings are optional — the CLI works fine for FTS5-only workflows without
+the `embed` extra.
+
+Optional terminal UI: `pip install -e ".[tui]"` then `criminal-db tui`.
+
+## Docker (API)
+
+Persistent corpus and SQLite live on the host (`data/`, `db/`, `models/`).
+Compose runs the JSON HTTP API on port **8765** by default (no browser UI yet).
 
 ```bash
 cp .env.docker.example .env
 mkdir -p data db models
 docker compose up -d api
-docker compose run --rm tui
+curl -s http://127.0.0.1:8765/health
 ```
 
-See [docs/DOCKER.md](docs/DOCKER.md) for volume paths, ports (`API_PORT`, `WEB_UI_PORT`), and the TUI.
-
-### Terminal UI (local)
-
-```bash
-pip install -e ".[embed,tui]"
-criminal-db-tui
-```
-
-Embeddings are optional — the CLI works fine for FTS5-only workflows without
-the `embed` extra.
+Interactive TUI in the container: `docker compose --profile tui run --rm tui`.
+Full details: [docs/DOCKER.md](docs/DOCKER.md).
 
 ## Quick start
 
@@ -168,6 +167,7 @@ explicit `AND` / `OR` / `NOT` / `NEAR` operators in the query string.
 ```
 criminal_db/
     cli.py                # Click CLI (`criminal-db ...`)
+    tui/                  # Textual menu (`criminal-db tui`)
     cli_output.py         # Rich tables + JSON helpers
     config.py             # Paths and tunables
     embedding.py          # Sentence-transformer wrapper

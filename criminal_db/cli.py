@@ -260,6 +260,18 @@ def restore_cmd(ctx: click.Context, archive: str) -> None:
             console.print(f"[green]ok[/] restored {p}")
 
 
+@cli.command("tui")
+def tui_cmd() -> None:
+    """Interactive terminal menu (requires ``criminal-db[tui]``)."""
+    try:
+        from .tui import run_tui
+    except ImportError as exc:
+        raise click.ClickException(
+            "TUI dependencies missing. Install with: pip install 'criminal-db[tui]'"
+        ) from exc
+    run_tui()
+
+
 @cli.command("serve")
 @click.option("--host", default=None, help=f"Bind host (default: {config.API_HOST})")
 @click.option("--port", default=None, type=int, help="Bind port")

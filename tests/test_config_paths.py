@@ -24,3 +24,11 @@ def test_env_path_overrides(monkeypatch, tmp_path):
         monkeypatch.delenv("CRIMINAL_DB_DATA_DIR", raising=False)
         monkeypatch.delenv("CRIMINAL_DB_DB_DIR", raising=False)
         importlib.reload(cfg)
+
+
+def test_default_paths_under_base_dir():
+    import criminal_db.config as cfg
+
+    assert cfg.DATA_DIR == (cfg.BASE_DIR / "data").resolve()
+    assert cfg.DB_DIR == (cfg.BASE_DIR / "db").resolve()
+    assert cfg.EMBEDDING_CACHE_DIR == cfg.MODELS_DIR / "embeddings"

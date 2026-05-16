@@ -3,16 +3,14 @@
 All notable changes to the **criminal-db** software are documented here. Corpus
 content in `data/` and `db/` is not part of releases.
 
-## [0.3.0] - 2026-05-15
+## [0.3.0] - 2026-05-16
 
 ### Added
 
 - Docker image, `compose.yaml`, and [docs/DOCKER.md](docs/DOCKER.md)
-- Configurable host volumes: `CORPUS_DATA_PATH`, `CORPUS_DB_PATH`, `CORPUS_MODELS_PATH`
-- Ports: `API_PORT`, `WEB_UI_PORT` (reserved for future web UI)
-- `criminal-db-tui` — Textual terminal UI for all major operations
-- `CRIMINAL_DB_*_DIR` env overrides for container paths
-- `/health` exempt from API token auth (for Docker healthchecks)
+- `criminal-db tui` — Textual terminal UI (`criminal-db[tui]`)
+- `CRIMINAL_DB_DATA_DIR`, `CRIMINAL_DB_DB_DIR`, `CRIMINAL_DB_MODELS_DIR` path overrides
+- `/health` exempt from API token auth (Docker healthchecks)
 
 ## [0.2.0] - 2026-05-15
 

@@ -1,8 +1,10 @@
 #!/bin/sh
 set -e
-# First-run layout when volumes are empty
-if [ ! -f "${CRIMINAL_DB_DB_DIR:-/db}/fulltext.db" ]; then
-  echo "criminal-db: initializing databases under ${CRIMINAL_DB_DB_DIR:-/db} ..."
+
+# Initialise empty db/ on first run when using mounted volumes.
+if [ ! -f /app/db/fulltext.db ] || [ ! -f /app/db/headnotes.db ]; then
+  echo "entrypoint: running criminal-db init (missing database files)"
   criminal-db init
 fi
+
 exec "$@"

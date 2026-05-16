@@ -1,95 +1,154 @@
-# Docker and Compose
+# Docker and Docker Compose
 
-Run **criminal-db** with persistent corpus volumes and an optional JSON API + TUI.
+The container image ships the **criminal-db** CLI with optional extras preinstalled:
 
-## Quick start
+| Extra | In image? | Purpose |
+|-------|-----------|---------|
+| `embed` | yes | `sentence-transformers` + hybrid/vector search |
+| `pdf` | yes | PDF import via PyMuPDF |
+| `tui` | yes | `criminal-db tui` (Textual) |
+
+The image does **not** include case law HTML, SQLite databases, or downloaded embedding weights.
+Mount host directories for `data/`, `db/`, and `models/` (see [Copyright](../COPYRIGHT_AND_REDISTRIBUTION.md)).
+
+There is **no browser web UI** yet. Compose publishes the JSON HTTP API (`criminal-db serve`).
+Use the TUI interactively (`docker compose run --rm tui`) or the CLI on the host.
+
+## Prerequisites
+
+- Docker Engine 24+ and Docker Compose v2
+- Host directories (create if missing):
 
 ```bash
-cp .env.docker.example .env
 mkdir -p data db models
+cp .env.docker.example .env   # optional; edit ports and paths
+```
 
-docker compose build
+## Build locally
+
+```bash
+docker build -t criminal-db:local .
+```
+
+## Run with Compose
+
+```bash
 docker compose up -d api
-
-# One-time / after adding files to ./data
-docker compose run --rm cli init
-docker compose run --rm cli import --criminal-only
-docker compose run --rm cli embed --scope all
-
-# Interactive TUI
-docker compose run --rm tui
+curl -s "http://127.0.0.1:8765/health"
 ```
 
-## Services
+Default service: **`api`** — runs `criminal-db serve` after `init` when `db/*.db` are missing.
 
-| Service | Purpose |
-|---------|---------|
-| `api` | HTTP JSON API (`criminal-db serve`) on port **API_PORT** (default 8765) |
-| `tui` | Full-screen terminal UI (`criminal-db-tui`) — profile `tui` |
-| `cli` | One-off CLI commands — profile `cli` |
+### Interactive TUI
 
 ```bash
-docker compose run --rm cli search "voir dire" --type hybrid
-docker compose run --rm cli curate --report
+docker compose --profile tui run --rm tui
 ```
 
-## Volume layout
+Requires a TTY (`stdin_open` / `tty` in `compose.yaml`).
 
-| Host env | Container | Contents |
-|----------|-----------|----------|
-| `CORPUS_DATA_PATH` | `/data` | HTML, import drop zone, manifest, statutes |
-| `CORPUS_DB_PATH` | `/db` | `fulltext.db`, `headnotes.db`, `statutes.db` |
-| `CORPUS_MODELS_PATH` | `/models` | Embedding model cache |
-
-Set paths in `.env` to absolute directories on the host, e.g.:
-
-```env
-CORPUS_DATA_PATH=/srv/criminal-db/data
-CORPUS_DB_PATH=/srv/criminal-db/db
-```
-
-## Ports
-
-| Variable | Default | Notes |
-|----------|---------|--------|
-| `API_PORT` | 8765 | Maps to API `GET /health`, `/search`, `/get` |
-| `WEB_UI_PORT` | 8080 | Reserved for a future web UI (not used yet) |
-
-## Environment
-
-| Variable | Description |
-|----------|-------------|
-| `API_TOKEN` | If set, API requires `Authorization: Bearer …` or `X-API-Token` |
-| `EMBEDDING_MODEL` | Sentence-transformers model name |
-| `MAX_QUERY_LEN` | FTS query length cap |
-| `RESPECT_ROBOTS` | `1` = obey CanLII robots.txt (default) |
-
-Internal paths are set via `CRIMINAL_DB_DATA_DIR`, `CRIMINAL_DB_DB_DIR`, `CRIMINAL_DB_MODELS_DIR` in `compose.yaml`.
-
-## TUI
-
-The TUI exposes init, import, ingest, parse, search, get, curate (incl. QA report), validate, verify, embed, analyze, backup, restore, export, and catalog index.
+### One-off CLI
 
 ```bash
-docker compose run --rm tui
+docker compose run --rm api criminal-db analyze
+docker compose run --rm api criminal-db ingest data/cases/fulltext
 ```
 
-Requires an interactive terminal (`-it` is set via `stdin_open` / `tty`).
+## Volume and corpus layout
 
-## API examples
+| Host path (default) | Container path | Contents |
+|---------------------|------------------|----------|
+| `./data` | `/app/data` | HTML corpus, `index/manifest.json`, `cases/md/`, statutes HTML |
+| `./db` | `/app/db` | `fulltext.db`, `headnotes.db`, `statutes.db`, backups |
+| `./models` | `/app/models` | Cached embedding models (`models/embeddings/`) |
+
+Workflow:
+
+1. Place permitted HTML under `data/cases/fulltext`, `data/import`, etc.
+2. `docker compose run --rm api criminal-db ingest` (or use the TUI).
+3. `docker compose run --rm api criminal-db embed` (downloads model into `./models` on first run).
+4. Search via API or CLI.
+
+SQLite and the manifest persist on the host across container restarts.
+
+## Environment variables
+
+See `.env.docker.example`. Common settings:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CRIMINAL_DB_HOST_PORT` | `8765` | Host port → API |
+| `CRIMINAL_DB_DATA_DIR` | `./data` | Host corpus mount (→ `/app/data`) |
+| `CRIMINAL_DB_DB_DIR` | `./db` | Host database mount (→ `/app/db`) |
+| `CRIMINAL_DB_MODELS_DIR` | `./models` | Host model cache mount (→ `/app/models`) |
+| `CRIMINAL_DB_API_HOST` | `0.0.0.0` | Bind address inside container |
+| `CRIMINAL_DB_API_PORT` | `8765` | API port inside container |
+| `CRIMINAL_DB_API_TOKEN` | (empty) | Optional Bearer token |
+| `CRIMINAL_DB_EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` | Hugging Face model id |
+| `CRIMINAL_DB_EMBEDDING_DIM` | `384` | Vector dimension |
+| `CRIMINAL_DB_RESPECT_ROBOTS` | `1` | CanLII harvester robots.txt |
+| `CRIMINAL_DB_USER_AGENT` | (built-in) | Harvester User-Agent |
+| `CRIMINAL_DB_DELAY_MIN` / `MAX` | `5.0` / `9.0` | Harvest delay bounds |
+| `CRIMINAL_DB_MAX_QUERY_LEN` | `500` | API search query cap |
+
+## Push to GitHub Container Registry (GHCR)
+
+Replace `OWNER` with your GitHub username or org.
 
 ```bash
-curl "http://localhost:8765/health"
-curl "http://localhost:8765/search?q=section+8&scope=all&type=fts"
-curl "http://localhost:8765/get?citation=2024+SCC+1"
+echo "$GITHUB_TOKEN" | docker login ghcr.io -u OWNER --password-stdin
+
+docker build -t ghcr.io/OWNER/criminal-db:latest .
+docker push ghcr.io/OWNER/criminal-db:latest
+
+# Versioned tag
+docker tag ghcr.io/OWNER/criminal-db:latest ghcr.io/OWNER/criminal-db:0.2.0
+docker push ghcr.io/OWNER/criminal-db:0.2.0
 ```
 
-With token:
+Pull and run:
 
 ```bash
-curl -H "Authorization: Bearer $API_TOKEN" "http://localhost:8765/search?q=charter"
+docker pull ghcr.io/OWNER/criminal-db:latest
+docker run --rm -p 8765:8765 \
+  -v "$(pwd)/data:/app/data" \
+  -v "$(pwd)/db:/app/db" \
+  -v "$(pwd)/models:/app/models" \
+  -e CRIMINAL_DB_API_HOST=0.0.0.0 \
+  ghcr.io/OWNER/criminal-db:latest
 ```
 
-## Legal note
+### GitHub Actions (publish on tag)
 
-Mount only corpus files you have rights to use. See [COPYRIGHT_AND_REDISTRIBUTION.md](COPYRIGHT_AND_REDISTRIBUTION.md).
+```yaml
+name: Publish image
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+```
+
+Do not bake copyrighted CanLII HTML or full corpora into the image or GHCR layer cache.

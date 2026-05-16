@@ -1,41 +1,47 @@
-# criminal-db — API + TUI image (embed + PDF + sqlite-vec)
-FROM python:3.12-slim-bookworm
+# criminal-db — API container with embed + PDF + TUI extras preinstalled.
+# Corpus HTML and SQLite files are NOT bundled; mount host data/ and db/.
 
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
-    CRIMINAL_DB_DATA_DIR=/data \
-    CRIMINAL_DB_DB_DIR=/db \
-    CRIMINAL_DB_MODELS_DIR=/models \
-    CRIMINAL_DB_API_HOST=0.0.0.0 \
-    CRIMINAL_DB_API_PORT=8765
+FROM python:3.12-slim AS builder
+
+WORKDIR /build
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml README.md ./
+COPY criminal_db ./criminal_db
+
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir ".[embed,pdf,tui]"
+
+FROM python:3.12-slim AS runtime
 
 WORKDIR /app
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        curl \
-        ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+        libgomp1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --uid 1000 appuser
 
-COPY pyproject.toml README.md LICENSE ./
+COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+COPY pyproject.toml README.md ./
 COPY criminal_db ./criminal_db
-
-RUN pip install --upgrade pip \
-    && pip install -e ".[embed,pdf,tui]"
-
-RUN mkdir -p /data /db /models
-
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-VOLUME ["/data", "/db", "/models"]
+RUN pip install --no-cache-dir --no-deps -e . \
+    && chmod +x /usr/local/bin/docker-entrypoint.sh \
+    && mkdir -p /app/data /app/db /app/models \
+    && chown -R appuser:appuser /app
 
-EXPOSE 8765 8080
+USER appuser
+
+ENV PYTHONUNBUFFERED=1 \
+    CRIMINAL_DB_API_HOST=0.0.0.0 \
+    CRIMINAL_DB_API_PORT=8765
+
+EXPOSE 8765
 
 ENTRYPOINT ["docker-entrypoint.sh"]
-
-HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
-    CMD curl -sf "http://127.0.0.1:8765/health" || exit 1
-
-CMD ["criminal-db", "serve", "--host", "0.0.0.0", "--port", "8765"]
+CMD ["criminal-db", "serve"]
