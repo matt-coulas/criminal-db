@@ -43,7 +43,8 @@ curl -s http://127.0.0.1:8765/health
 ```
 
 Interactive TUI in the container: `docker compose --profile tui run --rm tui`.
-Full details: [docs/DOCKER.md](docs/DOCKER.md).
+Full details: [docs/DOCKER.md](docs/DOCKER.md). Publish images via CI:
+[docs/GITHUB_ACTIONS_DOCKER.md](docs/GITHUB_ACTIONS_DOCKER.md).
 
 ## Quick start
 

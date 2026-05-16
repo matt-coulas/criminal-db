@@ -91,64 +91,23 @@ See `.env.docker.example`. Common settings:
 | `CRIMINAL_DB_DELAY_MIN` / `MAX` | `5.0` / `9.0` | Harvest delay bounds |
 | `CRIMINAL_DB_MAX_QUERY_LEN` | `500` | API search query cap |
 
-## Push to GitHub Container Registry (GHCR)
+## Publish images (GitHub Actions)
 
-Replace `OWNER` with your GitHub username or org.
+**Step-by-step guide:** [GITHUB_ACTIONS_DOCKER.md](GITHUB_ACTIONS_DOCKER.md)
+
+Workflows in `.github/workflows/`:
+
+- `docker-publish-ghcr.yml` — pushes to `ghcr.io/<owner>/criminal-db` (no extra secrets)
+- `docker-publish-dockerhub.yml` — pushes to Docker Hub (needs `DOCKERHUB_USERNAME` + `DOCKERHUB_TOKEN` secrets)
+
+Quick start: push to `main` or tag `v0.3.0`, then pull `ghcr.io/OWNER/criminal-db:latest`.
+
+### Manual push (optional)
 
 ```bash
 echo "$GITHUB_TOKEN" | docker login ghcr.io -u OWNER --password-stdin
-
 docker build -t ghcr.io/OWNER/criminal-db:latest .
 docker push ghcr.io/OWNER/criminal-db:latest
-
-# Versioned tag
-docker tag ghcr.io/OWNER/criminal-db:latest ghcr.io/OWNER/criminal-db:0.2.0
-docker push ghcr.io/OWNER/criminal-db:0.2.0
 ```
 
-Pull and run:
-
-```bash
-docker pull ghcr.io/OWNER/criminal-db:latest
-docker run --rm -p 8765:8765 \
-  -v "$(pwd)/data:/app/data" \
-  -v "$(pwd)/db:/app/db" \
-  -v "$(pwd)/models:/app/models" \
-  -e CRIMINAL_DB_API_HOST=0.0.0.0 \
-  ghcr.io/OWNER/criminal-db:latest
-```
-
-### GitHub Actions (publish on tag)
-
-```yaml
-name: Publish image
-
-on:
-  push:
-    tags: ["v*"]
-
-permissions:
-  contents: read
-  packages: write
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
-```
-
-Do not bake copyrighted CanLII HTML or full corpora into the image or GHCR layer cache.
+Do not bake copyrighted CanLII HTML or full corpora into the image or registry layer cache.
