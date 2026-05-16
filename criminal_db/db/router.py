@@ -267,6 +267,23 @@ class DatabaseRouter:
                 return case, store
         return None
 
+    def list_browser_cases(
+        self,
+        *,
+        criminal_only: bool = True,
+    ) -> list[dict]:
+        """Merge case summaries from both stores (fulltext wins on duplicate ref)."""
+        by_ref: dict[str, tuple[dict, StoreName]] = {}
+        for store in ("fulltext", "headnotes"):
+            corpus = "headnote" if store == "headnotes" else "fulltext"
+            for row in self.database_for_corpus(corpus).list_browser_cases(
+                criminal_only=criminal_only
+            ):
+                ref = row["canlii_ref"]
+                if ref not in by_ref or store == "fulltext":
+                    by_ref[ref] = (row, store)
+        return [{**row, "store": store} for row, store in by_ref.values()]
+
     def list_case_refs(
         self,
         *,

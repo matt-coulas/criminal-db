@@ -360,6 +360,30 @@ class Database:
         ]
         return case
 
+    def list_browser_cases(
+        self,
+        *,
+        criminal_only: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Summaries for TUI case browser (court / year / case columns)."""
+        sql = [
+            "SELECT c.canlii_ref, c.neutral_citation, c.court, c.court_year,",
+            "(SELECT p.heading FROM paragraphs p",
+            " WHERE p.case_id = c.id AND p.heading IS NOT NULL AND trim(p.heading) != ''",
+            " ORDER BY COALESCE(p.paragraph_num, p.id) LIMIT 1) AS heading,",
+            "(SELECT p.text FROM paragraphs p",
+            " WHERE p.case_id = c.id",
+            " ORDER BY COALESCE(p.paragraph_num, p.id) LIMIT 1) AS lead_text",
+            "FROM cases c WHERE 1=1",
+        ]
+        params: list[Any] = []
+        if criminal_only:
+            sql.append("AND c.is_criminal = 1")
+        sql.append(
+            "ORDER BY c.court, c.court_year DESC, c.decided_date DESC, c.canlii_ref"
+        )
+        return [dict(row) for row in self.conn.execute(" ".join(sql), params)]
+
     def list_case_refs(
         self,
         *,

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Callable, Optional
+
+_ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 from click.testing import CliRunner
 from textual import on, work
@@ -25,6 +28,11 @@ class MenuAction:
 
 
 MENU: list[MenuAction] = [
+    MenuAction(
+        "Browse cases",
+        "Court → year → case; read full decision text",
+        lambda _: ["__case_browser__"],
+    ),
     MenuAction("Initialize (init)", "Create db/ and data/ layout", lambda _: ["init"]),
     MenuAction(
         "Ingest HTML",
@@ -228,7 +236,7 @@ class CriminalDbApp(App):
         yield Static(id="paths")
         with Horizontal():
             yield ListView(id="menu")
-            yield RichLog(id="log", highlight=True, markup=True)
+            yield RichLog(id="log", markup=False, highlight=False, wrap=True)
         yield Footer()
 
     def on_mount(self) -> None:
@@ -237,7 +245,9 @@ class CriminalDbApp(App):
         for action in MENU:
             menu.append(ListItem(Label(action.label)))
         menu.focus()
-        self._log_system("Select an action (↑↓) and press Enter. Press [bold]q[/] to quit.")
+        self._log_system(
+            "Select an action (↑↓) and press Enter. Choose Browse cases to read full text. Press q to quit."
+        )
 
     def _refresh_paths(self) -> None:
         paths = self.query_one("#paths", Static)
@@ -251,14 +261,19 @@ class CriminalDbApp(App):
         self._refresh_paths()
 
     def _log_system(self, message: str) -> None:
-        self.query_one("#log", RichLog).write(f"[dim]{message}[/]")
+        self.query_one("#log", RichLog).write(message)
+
+    @staticmethod
+    def _sanitize_output(text: str) -> str:
+        """Strip ANSI and Rich markup triggers from CLI output."""
+        return _ANSI_ESCAPE.sub("", text)
 
     def _log_output(self, exit_code: int, output: str) -> None:
         log = self.query_one("#log", RichLog)
-        colour = "green" if exit_code == 0 else "red"
-        log.write(f"[{colour}]exit {exit_code}[/]")
+        status = "ok" if exit_code == 0 else "FAILED"
+        log.write(f"--- exit {exit_code} ({status}) ---")
         if output.strip():
-            log.write(output.rstrip())
+            log.write(self._sanitize_output(output.rstrip()))
 
     @staticmethod
     def _serve_status_text() -> str:
@@ -283,7 +298,7 @@ class CriminalDbApp(App):
             self.call_from_thread(self._log_output, 0, self._serve_status_text())
             return
         runner = CliRunner()
-        result = runner.invoke(cli, args, catch_exceptions=False)
+        result = runner.invoke(cli, args, catch_exceptions=False, color=False)
         self.call_from_thread(self._log_output, result.exit_code, result.output)
 
     @on(ListView.Selected, "#menu")
@@ -293,6 +308,12 @@ class CriminalDbApp(App):
             return
         action = MENU[index]
         self._log_system(f"→ {action.label}")
+
+        if action.build_args({}) == ["__case_browser__"]:
+            from .case_browser import CaseBrowserScreen
+
+            self.push_screen(CaseBrowserScreen())
+            return
 
         def after_prompt(values: Optional[dict[str, str]]) -> None:
             if values is None:

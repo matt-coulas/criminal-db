@@ -22,6 +22,11 @@ Thumbs.db
 
 # SQLite databases (rebuildable from harvested HTML)
 db/*.db
+db/seed/
+data/seed/
+
+# Your licensed HTML drops (not committed)
+fixtures/seed_corpus/incoming/uploads/
 db/*.db-journal
 db/*.db-wal
 db/*.db-shm

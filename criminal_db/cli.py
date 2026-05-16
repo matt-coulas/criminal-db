@@ -147,6 +147,101 @@ def init_cmd(ctx: click.Context) -> None:
     console.print(f"[green]ok[/]  cases md:   {config.CASES_MD_DIR}")
 
 
+@cli.command("seed-build")
+@click.option(
+    "-i",
+    "--input",
+    "input_dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="HTML/PDF tree to ingest (default: fixtures/seed_corpus/incoming)",
+)
+@click.option(
+    "-o",
+    "--output",
+    "db_dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Directory for fulltext.db and headnotes.db (default: db/seed)",
+)
+@click.option(
+    "--data-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Catalog + markdown tree (default: data/seed)",
+)
+@click.option("--force", is_flag=True, help="Re-parse and replace existing seed DBs")
+@click.option(
+    "--criminal-only",
+    is_flag=True,
+    help="Skip cases that fail criminal-law curation rules",
+)
+@click.option("--no-md", is_flag=True, help="Do not write per-case markdown under data/")
+@click.option(
+    "--install",
+    is_flag=True,
+    help="After build, copy seed DB files into db/ (project default)",
+)
+@click.pass_context
+def seed_build_cmd(
+    ctx: click.Context,
+    input_dir: Optional[Path],
+    db_dir: Optional[Path],
+    data_dir: Optional[Path],
+    force: bool,
+    criminal_only: bool,
+    no_md: bool,
+    install: bool,
+) -> None:
+    """Build a starter database from HTML/PDF for local dev, Docker, and tests."""
+    from .seed import build_seed_database, install_seed_database
+
+    root = config.BASE_DIR
+    incoming = input_dir or (root / "fixtures" / "seed_corpus" / "incoming")
+    try:
+        result = build_seed_database(
+            incoming,
+            db_dir=db_dir,
+            data_dir=data_dir,
+            criminal_only=criminal_only,
+            force=force,
+            write_md=not no_md,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    installed: list[Path] = []
+    if install:
+        installed = install_seed_database(result.db_dir)
+
+    if _ctx_json(ctx):
+        payload = result.to_dict()
+        if installed:
+            payload["installed"] = [str(p) for p in installed]
+        emit_json(payload)
+        return
+
+    parts = []
+    if result.html_files:
+        parts.append(f"{result.html_files} HTML")
+    if result.pdf_files:
+        parts.append(f"{result.pdf_files} PDF")
+    label = " + ".join(parts) if parts else "0"
+    console.print(f"[green]ok[/]  {result.report.ok} case(s) from {label} file(s)")
+    if result.report.skipped:
+        console.print(f"[yellow]skipped[/] {result.report.skipped}")
+    if result.report.failed:
+        console.print(f"[red]failed[/] {result.report.failed}")
+    if result.report.excluded:
+        console.print(f"[dim]excluded[/] {result.report.excluded}")
+    console.print(f"[green]ok[/]  fulltext:  {result.fulltext_db}")
+    console.print(f"[green]ok[/]  headnotes: {result.headnotes_db}")
+    console.print(f"[green]ok[/]  manifest:  {result.manifest_path}")
+    if installed:
+        for p in installed:
+            console.print(f"[green]ok[/]  installed: {p}")
+
+
 # ── validate ───────────────────────────────────────────────────────────────
 
 
