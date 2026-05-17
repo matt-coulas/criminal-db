@@ -28,18 +28,9 @@ criminal-db seed-build
 criminal-db seed-build -i /path/to/your/html -o db/seed
 criminal-db seed-build --db db/criminal.db --install
 
-# Copy db/seed/criminal.db into db/ for Docker / local API
+# Copy db/seed/criminal.db into db/ for local CLI / API
 criminal-db seed-build --install
 ```
-
-## Use with Docker
-
-```bash
-criminal-db seed-build --install   # copies into ./db/
-docker compose up -d api
-```
-
-Or mount `db/seed` explicitly in `compose.yaml` volume paths.
 
 The repo does **not** ship case HTML in this tree. Add your licensed corpus under
 `incoming/uploads/` (or any subtree). Parser smoke tests use synthetic HTML under

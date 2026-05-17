@@ -1,4 +1,4 @@
-"""Tests for Docker volume path overrides."""
+"""Tests for config path env overrides."""
 
 from __future__ import annotations
 

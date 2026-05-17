@@ -212,17 +212,17 @@ text licence:
 
 ---
 
-## 9. Software distribution (PyPI, Docker, forks)
+## 9. Software distribution (PyPI, installers, forks)
 
-You may distribute **the criminal-db package** under MIT. If you publish a Docker
-image or installer:
+You may distribute **the criminal-db package** under MIT. If you publish an
+installer or redistributable bundle:
 
 - **Do not** bundle `db/*.db`, `data/cases/`, or sample real judgments.
 - **Do** document that users must supply their own permitted sources.
 - **Do** link to this policy and the README CanLII section.
 
-Forks that pre-load a corpus into the image violate this policy unless every
-included work is clearly licensed for redistribution.
+Forks that pre-load a corpus into the distribution violate this policy unless
+every included work is clearly licensed for redistribution.
 
 ---
 

@@ -3,6 +3,14 @@
 All notable changes to the **criminal-db** software are documented here. Corpus
 content in `data/` and `db/` is not part of releases.
 
+## [Unreleased]
+
+### Removed
+
+- Docker/Compose: `Dockerfile`, `compose.yaml`, `docker-entrypoint.sh`,
+  `.env.docker.example`, `docs/DOCKER.md`, `docs/GITHUB_ACTIONS_DOCKER.md`, and
+  GHCR/Docker Hub publish workflows. Development is venv-first (see README).
+
 ## [0.3.1] - 2026-05-16
 
 ### Added

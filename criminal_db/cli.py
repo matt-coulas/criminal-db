@@ -205,7 +205,7 @@ def seed_build_cmd(
     no_md: bool,
     install: bool,
 ) -> None:
-    """Build a starter database from HTML/PDF for local dev, Docker, and tests."""
+    """Build a starter database from HTML/PDF for local dev and tests."""
     from .seed import build_seed_database, install_seed_database
 
     root = config.BASE_DIR

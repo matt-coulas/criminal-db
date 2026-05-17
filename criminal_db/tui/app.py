@@ -287,9 +287,8 @@ class CriminalDbApp(App):
         else:
             lines.append("  auth: none (set CRIMINAL_DB_API_TOKEN to protect)")
         lines.append("")
-        lines.append("Docker Compose runs `serve` as the default api service.")
-        lines.append("Host: map CRIMINAL_DB_HOST_PORT → container API port.")
-        lines.append("TUI does not start the server; run serve in another terminal or use compose.")
+        lines.append("Start the server in another terminal: criminal-db serve")
+        lines.append("TUI does not run the API process for you.")
         return "\n".join(lines)
 
     @work(thread=True)
