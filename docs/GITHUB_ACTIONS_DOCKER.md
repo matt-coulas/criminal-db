@@ -16,6 +16,7 @@ Start with **GHCR** only; add Docker Hub when you want images on both registries
 ## What gets published
 
 - **Image contents:** application code + Python deps (`embed`, `pdf`, `tui` extras)—see [Dockerfile](../Dockerfile).
+- **Platforms (GHCR):** `linux/amd64` and `linux/arm64` (Apple Silicon and Intel Macs pull without `--platform`).
 - **Not included:** `data/`, `db/`, or your case corpus (mount those at runtime).
 
 **Triggers:**
@@ -203,6 +204,7 @@ on:
 | Package not visible | Repo **Packages** tab; first successful push creates the package |
 | `403` pulling private GHCR image | `docker login ghcr.io` with PAT (`read:packages`) or make package public |
 | Build slow every time | Workflow uses GHA cache; second run should be faster |
+| `no matching manifest for linux/arm64` | Re-run **Publish Docker image (GHCR)** on current `main` (images are `linux/amd64` + `linux/arm64`) |
 | Wrong image name on Hub | Workflow uses `${{ secrets.DOCKERHUB_USERNAME }}/criminal-db` — create that repo on Hub |
 
 ### Pull private GHCR from a server
