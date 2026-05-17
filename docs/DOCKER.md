@@ -59,7 +59,7 @@ docker compose run --rm api criminal-db ingest data/cases/fulltext
 | Host path (default) | Container path | Contents |
 |---------------------|------------------|----------|
 | `./data` | `/app/data` | HTML corpus, `index/manifest.json`, `cases/md/`, statutes HTML |
-| `./db` | `/app/db` | `fulltext.db`, `headnotes.db`, `statutes.db`, backups |
+| `./db` | `/app/db` | `criminal.db`, `statutes.db`, backups |
 | `./models` | `/app/models` | Cached embedding models (`models/embeddings/`) |
 
 Workflow:
@@ -80,6 +80,7 @@ See `.env.docker.example`. Common settings:
 | `CRIMINAL_DB_HOST_PORT` | `8765` | Host port → API |
 | `CRIMINAL_DB_DATA_DIR` | `./data` | Host corpus mount (→ `/app/data`) |
 | `CRIMINAL_DB_DB_DIR` | `./db` | Host database mount (→ `/app/db`) |
+| `CRIMINAL_DB_CASE_DB` | `/app/db/criminal.db` | Unified case SQLite file |
 | `CRIMINAL_DB_MODELS_DIR` | `./models` | Host model cache mount (→ `/app/models`) |
 | `CRIMINAL_DB_API_HOST` | `0.0.0.0` | Bind address inside container |
 | `CRIMINAL_DB_API_PORT` | `8765` | API port inside container |

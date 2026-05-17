@@ -13,8 +13,8 @@ incoming/
   SCC/2024/…          # synthetic smoke-test samples (in repo)
   FCA/2023/…
   real/ONCA/2022/…
-  fulltext/…          # optional: path segment selects fulltext.db
-  headnotes/…         # optional: path segment selects headnotes.db
+  fulltext/…          # optional: path segment sets corpus=fulltext
+  headnotes/…         # optional: path segment sets corpus=headnote
 ```
 
 Files must parse to a neutral citation (`2024 SCC 1`, etc.) or they are skipped.
@@ -24,13 +24,14 @@ Files must parse to a neutral citation (`2024 SCC 1`, etc.) or they are skipped.
 From the repo root:
 
 ```bash
-# Default: read incoming/, write db/seed/ and data/seed/
+# Default: read incoming/, write db/seed/criminal.db and data/seed/
 criminal-db seed-build
 
-# Custom folders
+# Custom folders or output file
 criminal-db seed-build -i /path/to/your/html -o db/seed
+criminal-db seed-build --db db/criminal.db --install
 
-# Copy seed DBs into db/ for Docker / local API
+# Copy db/seed/criminal.db into db/ for Docker / local API
 criminal-db seed-build --install
 ```
 

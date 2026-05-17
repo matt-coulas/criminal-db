@@ -14,9 +14,16 @@ criminal-db init
 
 Creates:
 
-- `db/fulltext.db`, `db/headnotes.db`, `db/statutes.db`
+- `db/criminal.db` — all case law (fulltext and headnote paragraphs)
+- `db/statutes.db` — Criminal Code sections
 - `data/cases/{fulltext,headnotes}/`, `data/raw/`, `data/statutes/criminal_code/`
 - `data/index/manifest.json`, `data/index/overrides.yaml`
+
+Optional starter DB from synthetic fixtures:
+
+```bash
+criminal-db seed-build --install   # writes db/criminal.db from fixtures/seed_corpus/
+```
 
 ## 2. Case law (offline HTML)
 

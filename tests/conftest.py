@@ -46,8 +46,10 @@ def tmp_db(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def dual_dbs(tmp_path: Path, monkeypatch):
+    """Legacy split fulltext + headnotes databases (router split-mode tests)."""
     ft = tmp_path / "fulltext.db"
     hn = tmp_path / "headnotes.db"
+    monkeypatch.setattr("criminal_db.config.CASE_DB", ft)
     monkeypatch.setattr("criminal_db.config.FULLTEXT_DB", ft)
     monkeypatch.setattr("criminal_db.config.HEADNOTES_DB", hn)
     return ft, hn

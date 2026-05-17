@@ -1,0 +1,5 @@
+# Manual curation overrides (neutral citations).
+# include: force a case into the criminal corpus
+# exclude: force a case out (wins over rules)
+include: []
+exclude: []

@@ -21,6 +21,7 @@ class SeedBuildResult:
 
     db_dir: Path
     data_dir: Path
+    case_db: Path
     fulltext_db: Path
     headnotes_db: Path
     manifest_path: Path
@@ -33,6 +34,7 @@ class SeedBuildResult:
         return {
             "db_dir": str(self.db_dir),
             "data_dir": str(self.data_dir),
+            "case_db": str(self.case_db),
             "fulltext_db": str(self.fulltext_db),
             "headnotes_db": str(self.headnotes_db),
             "manifest_path": str(self.manifest_path),
@@ -47,12 +49,13 @@ def build_seed_database(
     input_dir: Path,
     *,
     db_dir: Optional[Path] = None,
+    case_db: Optional[Path] = None,
     data_dir: Optional[Path] = None,
     criminal_only: bool = False,
     force: bool = False,
     write_md: bool = True,
 ) -> SeedBuildResult:
-    """Parse HTML and PDF under ``input_dir`` into fresh DB files under ``db_dir``.
+    """Parse HTML and PDF under ``input_dir`` into a fresh case DB under ``db_dir``.
 
     Any nested layout is fine (e.g. ``court/year/case.html``); files are
     discovered recursively. Corpus (fulltext vs headnote) is inferred from
@@ -76,30 +79,24 @@ def build_seed_database(
     out_db.mkdir(parents=True, exist_ok=True)
     out_data.mkdir(parents=True, exist_ok=True)
 
-    ft_path = out_db / "fulltext.db"
-    hn_path = out_db / "headnotes.db"
-    if force:
-        for p in (ft_path, hn_path):
-            if p.exists():
-                p.unlink()
+    case_path = Path(case_db or (out_db / "criminal.db")).resolve()
+    if force and case_path.exists():
+        case_path.unlink()
 
-    # Temporarily point config at seed trees (manifest + optional markdown).
     prev = _snapshot_config_paths()
     report: IngestReport
     try:
         _apply_config_paths(
             data_dir=out_data,
             db_dir=out_db,
-            fulltext_db=ft_path,
-            headnotes_db=hn_path,
+            case_db=case_path,
         )
         ensure_catalog_dirs()
-        init_db(ft_path)
-        init_db(hn_path)
+        init_db(case_path)
 
         router = DatabaseRouter(
-            fulltext_path=ft_path,
-            headnotes_path=hn_path,
+            fulltext_path=case_path,
+            headnotes_path=case_path,
             auto_init=False,
         )
         try:
@@ -118,8 +115,9 @@ def build_seed_database(
     return SeedBuildResult(
         db_dir=out_db,
         data_dir=out_data,
-        fulltext_db=ft_path,
-        headnotes_db=hn_path,
+        case_db=case_path,
+        fulltext_db=case_path,
+        headnotes_db=case_path,
         manifest_path=out_data / "index" / "manifest.json",
         report=report,
         source_files=len(sources),
@@ -135,6 +133,7 @@ def _snapshot_config_paths() -> dict[str, Path]:
         "INDEX_DIR",
         "MANIFEST_PATH",
         "OVERRIDES_PATH",
+        "CASE_DB",
         "FULLTEXT_DB",
         "HEADNOTES_DB",
         "CASES_DIR",
@@ -149,16 +148,16 @@ def _apply_config_paths(
     *,
     data_dir: Path,
     db_dir: Path,
-    fulltext_db: Path,
-    headnotes_db: Path,
+    case_db: Path,
 ) -> None:
     config.DATA_DIR = data_dir
     config.DB_DIR = db_dir
     config.INDEX_DIR = data_dir / "index"
     config.MANIFEST_PATH = config.INDEX_DIR / "manifest.json"
     config.OVERRIDES_PATH = config.INDEX_DIR / "overrides.yaml"
-    config.FULLTEXT_DB = fulltext_db
-    config.HEADNOTES_DB = headnotes_db
+    config.CASE_DB = case_db
+    config.FULLTEXT_DB = case_db
+    config.HEADNOTES_DB = case_db
     config.CASES_DIR = data_dir / "cases"
     config.CASES_MD_DIR = config.CASES_DIR / "md"
     config.IMPORT_DIR = data_dir / "import"
@@ -175,14 +174,26 @@ def install_seed_database(
     *,
     target_db_dir: Optional[Path] = None,
 ) -> list[Path]:
-    """Copy ``fulltext.db`` and ``headnotes.db`` from a seed build into ``db/``."""
+    """Copy seed case DB (and statutes if present) into ``db/``."""
     src = seed_db_dir.resolve()
     dest = Path(target_db_dir or config.DB_DIR).resolve()
     dest.mkdir(parents=True, exist_ok=True)
     copied: list[Path] = []
-    for name in ("fulltext.db", "headnotes.db", "statutes.db"):
+    seen: set[Path] = set()
+
+    def _copy_once(name: str) -> None:
         s = src / name
-        if s.exists():
-            shutil.copy2(s, dest / name)
-            copied.append(dest / name)
+        if not s.exists():
+            return
+        target = (dest / name).resolve()
+        if target in seen:
+            return
+        shutil.copy2(s, target)
+        seen.add(target)
+        copied.append(target)
+
+    _copy_once("criminal.db")
+    _copy_once("fulltext.db")
+    _copy_once("headnotes.db")
+    _copy_once("statutes.db")
     return copied

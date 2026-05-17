@@ -55,7 +55,8 @@ for any network exposure.
 
 | Component | Rough size |
 |-----------|------------|
-| `db/fulltext.db` | Depends on corpus; FTS + vec grow with paragraph count |
+| `db/criminal.db` | Depends on corpus; FTS + vec grow with paragraph count |
+| `db/statutes.db` | Criminal Code sections (usually small) |
 | Embedding model cache | ~130 MB under `models/embeddings/` |
 | RAM during `embed` | Model + batch (default batch 32) |
 

@@ -128,19 +128,23 @@ def init_cmd(ctx: click.Context) -> None:
     ensure_catalog_dirs()
     config.CRIMINAL_CODE_DIR.mkdir(parents=True, exist_ok=True)
     if _ctx_json(ctx):
-        emit_json(
-            {
-                "headnotes_db": str(headnotes),
-                "fulltext_db": str(fulltext),
-                "statutes_db": str(statutes),
-                "manifest": str(config.MANIFEST_PATH),
-                "import_dir": str(config.IMPORT_DIR),
-                "cases_md_dir": str(config.CASES_MD_DIR),
-            }
-        )
+        payload: dict = {
+            "case_db": str(config.CASE_DB),
+            "headnotes_db": str(headnotes),
+            "fulltext_db": str(fulltext),
+            "statutes_db": str(statutes),
+            "manifest": str(config.MANIFEST_PATH),
+            "import_dir": str(config.IMPORT_DIR),
+            "cases_md_dir": str(config.CASES_MD_DIR),
+            "unified": config.case_db_unified(),
+        }
+        emit_json(payload)
         return
-    console.print(f"[green]ok[/]  headnotes db: {headnotes}")
-    console.print(f"[green]ok[/]  fulltext  db: {fulltext}")
+    if config.case_db_unified():
+        console.print(f"[green]ok[/]  case db:    {config.CASE_DB}")
+    else:
+        console.print(f"[green]ok[/]  headnotes db: {headnotes}")
+        console.print(f"[green]ok[/]  fulltext  db: {fulltext}")
     console.print(f"[green]ok[/]  statutes  db: {statutes}")
     console.print(f"[green]ok[/]  manifest:   {config.MANIFEST_PATH}")
     console.print(f"[green]ok[/]  import dir: {config.IMPORT_DIR}")
@@ -162,7 +166,14 @@ def init_cmd(ctx: click.Context) -> None:
     "db_dir",
     type=click.Path(file_okay=False, path_type=Path),
     default=None,
-    help="Directory for fulltext.db and headnotes.db (default: db/seed)",
+    help="Directory for criminal.db (default: db/seed)",
+)
+@click.option(
+    "--db",
+    "case_db",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Output case database file (default: <output>/criminal.db)",
 )
 @click.option(
     "--data-dir",
@@ -170,7 +181,7 @@ def init_cmd(ctx: click.Context) -> None:
     default=None,
     help="Catalog + markdown tree (default: data/seed)",
 )
-@click.option("--force", is_flag=True, help="Re-parse and replace existing seed DBs")
+@click.option("--force", is_flag=True, help="Re-parse and replace existing seed DB")
 @click.option(
     "--criminal-only",
     is_flag=True,
@@ -187,6 +198,7 @@ def seed_build_cmd(
     ctx: click.Context,
     input_dir: Optional[Path],
     db_dir: Optional[Path],
+    case_db: Optional[Path],
     data_dir: Optional[Path],
     force: bool,
     criminal_only: bool,
@@ -202,6 +214,7 @@ def seed_build_cmd(
         result = build_seed_database(
             incoming,
             db_dir=db_dir,
+            case_db=case_db,
             data_dir=data_dir,
             criminal_only=criminal_only,
             force=force,
@@ -234,8 +247,7 @@ def seed_build_cmd(
         console.print(f"[red]failed[/] {result.report.failed}")
     if result.report.excluded:
         console.print(f"[dim]excluded[/] {result.report.excluded}")
-    console.print(f"[green]ok[/]  fulltext:  {result.fulltext_db}")
-    console.print(f"[green]ok[/]  headnotes: {result.headnotes_db}")
+    console.print(f"[green]ok[/]  case db:   {result.case_db}")
     console.print(f"[green]ok[/]  manifest:  {result.manifest_path}")
     if installed:
         for p in installed:

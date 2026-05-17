@@ -106,9 +106,9 @@ class CaseBrowserScreen(Screen):
         try:
             entries = load_browser_entries(self._router)
         except Exception as exc:  # noqa: BLE001 — show in UI
-            self.call_from_thread(self._show_error, str(exc))
+            self.app.call_from_thread(self._show_error, str(exc))
             return
-        self.call_from_thread(self._apply_index, entries)
+        self.app.call_from_thread(self._apply_index, entries)
 
     def _show_error(self, message: str) -> None:
         log = self.query_one("#case-viewer", RichLog)
@@ -138,7 +138,7 @@ class CaseBrowserScreen(Screen):
         if not count:
             log = self.query_one("#case-viewer", RichLog)
             log.clear()
-            log.write("No cases found in fulltext.db / headnotes.db.")
+            log.write("No cases found in the case database (db/criminal.db).")
 
     def _fill_list(
         self,
@@ -216,7 +216,7 @@ class CaseBrowserScreen(Screen):
             text = load_case_full_text(self._router, entry)
         except Exception as exc:  # noqa: BLE001
             text = f"Error loading case:\n{exc}"
-        self.call_from_thread(self._show_case_text, text, entry)
+        self.app.call_from_thread(self._show_case_text, text, entry)
 
     def _show_case_text(self, text: str, entry: CaseBrowserEntry) -> None:
         log = self.query_one("#case-viewer", RichLog)

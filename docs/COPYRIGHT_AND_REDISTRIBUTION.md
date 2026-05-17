@@ -154,7 +154,7 @@ Canada guidance.
 | `data/cases/**/*.html` | Original or saved HTML | Only if source licence allows |
 | `data/import/**` | Staged import files | Same as source |
 | `data/raw/` | Harvest output (if used) | Same as source |
-| `db/fulltext.db`, `db/headnotes.db` | Full paragraph text + search indexes | **No** public redistribution by default |
+| `db/criminal.db` | Full paragraph text + search indexes (cases) | **No** public redistribution by default |
 | `db/statutes.db` | Criminal Code sections | OGL-Canada may allow with conditions |
 | `data/cases/md/*.md` | Optional markdown mirror of cases | Same as case text |
 | `data/index/manifest.json` | Paths, hashes, citations (metadata) | Low risk alone; may still identify corpus |

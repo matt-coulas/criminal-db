@@ -1,6 +1,6 @@
 # Importing cases without CanLII scraping
 
-Use `criminal-db import` when you have saved HTML or PDF decisions and cannot (or should not) harvest from CanLII. Files are staged under `data/import/`, parsed, stored via the dual-database router, and tracked in `data/index/manifest.json`.
+Use `criminal-db import` when you have saved HTML or PDF decisions and cannot (or should not) harvest from CanLII. Files are staged under `data/import/`, parsed, stored in **`db/criminal.db`** (with `corpus` set from the parser), and tracked in `data/index/manifest.json`.
 
 **Copyright:** importing a file does not grant redistribution rights. You must have
 a lawful basis for each source (court copy, licensed PDF, permitted save, etc.).

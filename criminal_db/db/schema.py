@@ -199,9 +199,15 @@ def init_db(db_path: PathLike, *, embedding_dim: int | None = None) -> Path:
 
 
 def init_default_databases() -> tuple[Path, Path]:
-    """Initialise both ``headnotes.db`` and ``fulltext.db`` in ``DB_DIR``."""
+    """Initialise case database(s) in ``DB_DIR``.
 
+    Returns ``(fulltext_path, headnotes_path)`` for backward compatibility;
+    both paths are identical when the deployment uses a unified case DB.
+    """
     config.DB_DIR.mkdir(parents=True, exist_ok=True)
+    if config.case_db_unified():
+        path = init_db(config.CASE_DB)
+        return path, path
     return (
         init_db(config.HEADNOTES_DB),
         init_db(config.FULLTEXT_DB),

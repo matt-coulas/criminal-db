@@ -25,7 +25,7 @@ Human-readable tables are the default when `--json` is omitted.
 criminal-db init
 
 # 2. Place permitted HTML under data/cases/fulltext or data/cases/headnotes
-# 3. Ingest (updates manifest + routes to the correct SQLite file)
+# 3. Ingest (updates manifest + stores cases in db/criminal.db)
 criminal-db --json ingest
 
 # 4. Embeddings (requires pip install -e ".[embed]")
@@ -35,16 +35,24 @@ criminal-db --json embed
 criminal-db --json search "voir dire admissibility" --type hybrid --limit 5
 ```
 
-## Dual databases
+## Case database
 
-| Store | File | Contents |
-|-------|------|----------|
-| `fulltext` | `db/fulltext.db` | Numbered decision paragraphs |
-| `headnotes` | `db/headnotes.db` | Headnote / summary paragraphs |
+By default all cases live in **`db/criminal.db`**. Each row has a `corpus`
+column (`fulltext` or `headnote`) so numbered decisions and summary pages can
+coexist in one file.
 
-`parse`, `ingest`, and `harvest` (without `--db`) route cases by parsed `corpus`. `search` and `embed` (without `--db`) query **both** stores and merge ranks.
+`parse`, `ingest`, and `harvest` (without `--db`) set `corpus` from the parser
+or from path segments (`data/cases/fulltext/` vs `headnotes/`). `search` and
+`embed` (without `--db`) query that file once.
 
-Override with `--db path/to/one.db` for single-database mode.
+| Override | Effect |
+|----------|--------|
+| `CRIMINAL_DB_CASE_DB` | Unified case DB path (default `db/criminal.db`) |
+| `--db path/to/file.db` | Single-file mode for one command |
+| `CRIMINAL_DB_FULLTEXT_DB` + `CRIMINAL_DB_HEADNOTES_DB` (different paths) | Legacy split: two SQLite files, merged search |
+
+For a starter corpus without your own HTML, use
+`criminal-db seed-build --install` (see `fixtures/seed_corpus/README.md`).
 
 ## Catalog manifest
 

@@ -19,6 +19,17 @@ DEFAULT_ARTIFACTS = (
 )
 
 
+def _case_db_paths_for_backup() -> list[Path]:
+    """Return distinct case DB paths (one entry when unified)."""
+    paths: list[Path] = []
+    for candidate in (config.CASE_DB, config.FULLTEXT_DB, config.HEADNOTES_DB):
+        resolved = candidate.resolve()
+        if any(p.resolve() == resolved for p in paths):
+            continue
+        paths.append(candidate)
+    return paths
+
+
 def backup_data(
     destination: Path,
     *,
@@ -36,7 +47,7 @@ def backup_data(
         destination = destination / f"criminal-db-backup-{stamp}.tar.gz"
     destination.parent.mkdir(parents=True, exist_ok=True)
 
-    paths = [config.FULLTEXT_DB, config.HEADNOTES_DB, config.MANIFEST_PATH]
+    paths = [*_case_db_paths_for_backup(), config.MANIFEST_PATH]
     if config.OVERRIDES_PATH.exists():
         paths.append(config.OVERRIDES_PATH)
     if include_statutes and config.STATUTES_DB.exists():
@@ -61,6 +72,7 @@ def restore_data(
 
     restored: list[Path] = []
     name_map = {
+        "criminal.db": config.CASE_DB,
         "fulltext.db": config.FULLTEXT_DB,
         "headnotes.db": config.HEADNOTES_DB,
         "statutes.db": config.STATUTES_DB,

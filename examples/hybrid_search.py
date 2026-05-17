@@ -9,7 +9,7 @@ Run from the repo root::
 
 The script creates a throwaway SQLite database under ``./tmp_hybrid.db`` and
 populates it from ``tests/fixtures/real/*.html``.  It does not touch the
-real ``db/fulltext.db``.
+project ``db/criminal.db``.
 
 Requires the ``embed`` extra::
 

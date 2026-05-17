@@ -19,6 +19,40 @@ def _env_path(env_key: str, default_relative: str) -> Path:
     return (BASE_DIR / default_relative).resolve()
 
 
+def _env_db_path(env_key: str) -> Optional[Path]:
+    """Resolve an optional SQLite path from ``CRIMINAL_DB_*`` env."""
+    raw = os.environ.get(env_key)
+    if not raw:
+        return None
+    return Path(raw).expanduser().resolve()
+
+
+def _resolve_case_db_paths() -> tuple[Path, Path, Path]:
+    """Return ``(CASE_DB, FULLTEXT_DB, HEADNOTES_DB)`` from environment.
+
+  Unified mode (default): one file at ``DB_DIR/criminal.db``. Legacy split
+  when both ``CRIMINAL_DB_FULLTEXT_DB`` and ``CRIMINAL_DB_HEADNOTES_DB`` are
+  set to different paths. A single legacy var applies to both stores.
+    """
+    ft = _env_db_path("CRIMINAL_DB_FULLTEXT_DB")
+    hn = _env_db_path("CRIMINAL_DB_HEADNOTES_DB")
+    case = _env_db_path("CRIMINAL_DB_CASE_DB")
+
+    if ft is not None and hn is not None and ft != hn:
+        return (case if case is not None else ft), ft, hn
+    if ft is not None and hn is not None:
+        return ft, ft, ft
+    if ft is not None:
+        return ft, ft, ft
+    if hn is not None:
+        return hn, hn, hn
+    if case is not None:
+        return case, case, case
+
+    default = (DB_DIR / "criminal.db").resolve()
+    return default, default, default
+
+
 DATA_DIR: Path = _env_path("CRIMINAL_DB_DATA_DIR", "data")
 DB_DIR: Path = _env_path("CRIMINAL_DB_DB_DIR", "db")
 MODELS_DIR: Path = _env_path("CRIMINAL_DB_MODELS_DIR", "models")
@@ -29,15 +63,11 @@ CASES_DIR: Path = DATA_DIR / "cases"
 CASES_MD_DIR: Path = CASES_DIR / "md"
 STATUTES_DIR: Path = DATA_DIR / "statutes"
 
-# The two SQLite databases below sit in DB_DIR.  They share the same schema;
-# `headnotes.db` stores only summary paragraphs, `fulltext.db` stores the
-# entire decision body.  Most users only need `fulltext.db`.
-HEADNOTES_DB: Path = DB_DIR / "headnotes.db"
-FULLTEXT_DB: Path = DB_DIR / "fulltext.db"
+CASE_DB, FULLTEXT_DB, HEADNOTES_DB = _resolve_case_db_paths()
 STATUTES_DB: Path = DB_DIR / "statutes.db"
 
 # Default database used by the CLI when --db targets a single file.
-DEFAULT_DB: Path = FULLTEXT_DB
+DEFAULT_DB: Path = CASE_DB
 
 # Offline Justice Canada Criminal Code HTML (laws-lois.justice.gc.ca).
 CRIMINAL_CODE_DIR: Path = STATUTES_DIR / "criminal_code"
@@ -46,6 +76,12 @@ CRIMINAL_CODE_DIR: Path = STATUTES_DIR / "criminal_code"
 INDEX_DIR: Path = DATA_DIR / "index"
 MANIFEST_PATH: Path = INDEX_DIR / "manifest.json"
 OVERRIDES_PATH: Path = INDEX_DIR / "overrides.yaml"
+
+
+def case_db_unified() -> bool:
+    """True when fulltext and headnotes resolve to the same SQLite file."""
+    return FULLTEXT_DB.resolve() == HEADNOTES_DB.resolve()
+
 
 # ── Harvester ───────────────────────────────────────────────────────────────
 

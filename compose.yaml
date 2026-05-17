@@ -18,6 +18,7 @@ services:
       CRIMINAL_DB_EMBEDDING_MODEL: ${CRIMINAL_DB_EMBEDDING_MODEL:-BAAI/bge-small-en-v1.5}
       CRIMINAL_DB_EMBEDDING_DIM: ${CRIMINAL_DB_EMBEDDING_DIM:-384}
       CRIMINAL_DB_MAX_QUERY_LEN: ${CRIMINAL_DB_MAX_QUERY_LEN:-500}
+      CRIMINAL_DB_CASE_DB: ${CRIMINAL_DB_CASE_DB:-/app/db/criminal.db}
     volumes:
       - ${CRIMINAL_DB_DATA_DIR:-./data}:/app/data
       - ${CRIMINAL_DB_DB_DIR:-./db}:/app/db
@@ -38,6 +39,7 @@ services:
       CRIMINAL_DB_RESPECT_ROBOTS: ${CRIMINAL_DB_RESPECT_ROBOTS:-1}
       CRIMINAL_DB_EMBEDDING_MODEL: ${CRIMINAL_DB_EMBEDDING_MODEL:-BAAI/bge-small-en-v1.5}
       CRIMINAL_DB_EMBEDDING_DIM: ${CRIMINAL_DB_EMBEDDING_DIM:-384}
+      CRIMINAL_DB_CASE_DB: ${CRIMINAL_DB_CASE_DB:-/app/db/criminal.db}
     volumes:
       - ${CRIMINAL_DB_DATA_DIR:-./data}:/app/data
       - ${CRIMINAL_DB_DB_DIR:-./db}:/app/db

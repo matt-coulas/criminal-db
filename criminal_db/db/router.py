@@ -16,6 +16,8 @@ StoreName = Literal["fulltext", "headnotes"]
 
 def db_path_for_corpus(corpus: str) -> Path:
     """Return the SQLite path for a parsed case corpus label."""
+    if config.case_db_unified():
+        return config.CASE_DB
     if corpus == "headnote":
         return config.HEADNOTES_DB
     return config.FULLTEXT_DB
@@ -38,7 +40,7 @@ def _merge_ranked(results: list[SearchResult], *, limit: int) -> list[SearchResu
 
 
 class DatabaseRouter:
-    """Facade over ``fulltext.db`` and ``headnotes.db``.
+    """Facade over the case database (unified) or split fulltext/headnotes files.
 
     When ``--db`` is not passed on the CLI, commands use this router to store
     cases in the correct database and to search/embed/analyse both.
@@ -53,13 +55,21 @@ class DatabaseRouter:
     ) -> None:
         self.fulltext_path = Path(fulltext_path or config.FULLTEXT_DB)
         self.headnotes_path = Path(headnotes_path or config.HEADNOTES_DB)
+        self._unified = self.fulltext_path.resolve() == self.headnotes_path.resolve()
         if auto_init:
-            init_db(self.fulltext_path)
-            init_db(self.headnotes_path)
+            if self._unified:
+                init_db(self.fulltext_path)
+            else:
+                init_db(self.fulltext_path)
+                init_db(self.headnotes_path)
         self._fulltext: Optional[Database] = None
         self._headnotes: Optional[Database] = None
 
     def _db(self, store: StoreName) -> Database:
+        if self._unified:
+            if self._fulltext is None:
+                self._fulltext = Database(self.fulltext_path, auto_init=False)
+            return self._fulltext
         if store == "fulltext":
             if self._fulltext is None:
                 self._fulltext = Database(self.fulltext_path, auto_init=False)
@@ -67,6 +77,11 @@ class DatabaseRouter:
         if self._headnotes is None:
             self._headnotes = Database(self.headnotes_path, auto_init=False)
         return self._headnotes
+
+    def _iter_stores(self) -> tuple[StoreName, ...]:
+        if self._unified:
+            return ("fulltext",)
+        return ("fulltext", "headnotes")
 
     def database_for_corpus(self, corpus: str) -> Database:
         store: StoreName = "headnotes" if corpus == "headnote" else "fulltext"
@@ -88,6 +103,8 @@ class DatabaseRouter:
         if corpus == "headnote":
             return [("headnotes", self._db("headnotes"))]
         if corpus == "fulltext":
+            return [("fulltext", self._db("fulltext"))]
+        if self._unified:
             return [("fulltext", self._db("fulltext"))]
         return [
             ("fulltext", self._db("fulltext")),
@@ -114,9 +131,10 @@ class DatabaseRouter:
         offset: int = 0,
         criminal_only: bool = True,
     ) -> list[SearchResult]:
-        per_store = max(limit + offset, limit) * 2
+        stores = self.stores_for_corpus_filter(corpus)
+        per_store = max(limit + offset, limit) * len(stores)
         combined: list[SearchResult] = []
-        for store, db in self.stores_for_corpus_filter(corpus):
+        for store, db in stores:
             hits = db.search_fts(
                 query,
                 limit=per_store,
@@ -140,9 +158,10 @@ class DatabaseRouter:
         offset: int = 0,
         criminal_only: bool = True,
     ) -> list[SearchResult]:
-        per_store = max(limit + offset, limit) * 2
+        stores = self.stores_for_corpus_filter(corpus)
+        per_store = max(limit + offset, limit) * len(stores)
         combined: list[SearchResult] = []
-        for store, db in self.stores_for_corpus_filter(corpus):
+        for store, db in stores:
             hits = db.search_vector(
                 vector,
                 limit=per_store,
@@ -168,9 +187,10 @@ class DatabaseRouter:
         criminal_only: bool = True,
         fts_weight: float = config.HYBRID_FTS_WEIGHT,
     ) -> list[SearchResult]:
-        per_store = max(limit + offset, limit) * 2
+        stores = self.stores_for_corpus_filter(corpus)
+        per_store = max(limit + offset, limit) * len(stores)
         combined: list[SearchResult] = []
-        for store, db in self.stores_for_corpus_filter(corpus):
+        for store, db in stores:
             hits = db.search_hybrid(
                 query,
                 vector,
@@ -190,7 +210,7 @@ class DatabaseRouter:
     ) -> list[tuple[int, str, StoreName]]:
         """Return ``(paragraph_id, text, store)`` tuples missing embeddings."""
         out: list[tuple[int, str, StoreName]] = []
-        for store in ("fulltext", "headnotes"):
+        for store in self._iter_stores():
             for pid, text in self._db(store).paragraphs_missing_embeddings():
                 out.append((pid, text, store))
                 if limit is not None and len(out) >= limit:
@@ -225,7 +245,7 @@ class DatabaseRouter:
             "headnote_paragraphs": 0,
             "embeddings": 0,
         }
-        for store in ("fulltext", "headnotes"):
+        for store in self._iter_stores():
             db = self._db(store)
             stats = {
                 "path": str(db.db_path),
@@ -247,6 +267,19 @@ class DatabaseRouter:
             totals["ratio_paragraphs"] += stats["ratio_paragraphs"]
             totals["headnote_paragraphs"] += stats["headnote_paragraphs"]
             totals["embeddings"] += stats["embeddings"]
+        if self._unified and "headnotes" not in stores:
+            stores["headnotes"] = {
+                **stores["fulltext"],
+                "cases": 0,
+                "criminal_cases": 0,
+                "excluded_cases": 0,
+                "paragraphs": 0,
+                "ratio_paragraphs": 0,
+                "headnote_paragraphs": 0,
+                "embeddings": 0,
+                "by_court": {},
+                "by_year": {},
+            }
         return {"stores": stores, "total": totals}
 
     def get_case(
@@ -258,7 +291,7 @@ class DatabaseRouter:
         from ..retrieval import citation_lookup_variants
 
         for ref in citation_lookup_variants(canlii_ref):
-            for store in ("fulltext", "headnotes"):
+            for store in self._iter_stores():
                 case = self._db(store).get_case(ref)
                 if case is None:
                     continue
@@ -273,6 +306,13 @@ class DatabaseRouter:
         criminal_only: bool = True,
     ) -> list[dict]:
         """Merge case summaries from both stores (fulltext wins on duplicate ref)."""
+        if self._unified:
+            return [
+                {**row, "store": "fulltext"}
+                for row in self._db("fulltext").list_browser_cases(
+                    criminal_only=criminal_only
+                )
+            ]
         by_ref: dict[str, tuple[dict, StoreName]] = {}
         for store in ("fulltext", "headnotes"):
             corpus = "headnote" if store == "headnotes" else "fulltext"
@@ -292,7 +332,7 @@ class DatabaseRouter:
         criminal_only: bool = True,
     ) -> list[tuple[str, StoreName]]:
         seen: dict[str, StoreName] = {}
-        for store in ("fulltext", "headnotes"):
+        for store in self._iter_stores():
             for ref in self._db(store).list_case_refs(
                 court=court, year=year, criminal_only=criminal_only
             ):
@@ -322,15 +362,17 @@ class DatabaseRouter:
         from ..curation.apply import curate_database
 
         reports = {}
-        for store in ("fulltext", "headnotes"):
+        for store in self._iter_stores():
             reports[store] = curate_database(self._db(store)).to_dict()
+        if self._unified:
+            reports["headnotes"] = reports["fulltext"]
         return reports
 
     def close(self) -> None:
         if self._fulltext is not None:
             self._fulltext.close()
             self._fulltext = None
-        if self._headnotes is not None:
+        if self._headnotes is not None and not self._unified:
             self._headnotes.close()
             self._headnotes = None
 

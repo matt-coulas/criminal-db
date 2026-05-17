@@ -62,7 +62,7 @@ docker compose up -d api
 curl -s http://127.0.0.1:8765/health
 ```
 
-First start runs `criminal-db init` automatically when `db/*.db` are missing.
+First start runs `criminal-db init` automatically when `db/criminal.db` is missing.
 
 ### Quick start (pull a published image)
 
@@ -78,7 +78,10 @@ Use `image:` instead of `build:` in the compose example below.
 ### Corpus workflow in Docker
 
 ```bash
-# Copy permitted HTML into ./data/cases/fulltext or ./data/import/html
+# Optional: starter DB from synthetic fixtures (no HTML required)
+docker compose run --rm api criminal-db seed-build --install
+
+# Or copy permitted HTML into ./data/cases/fulltext or ./data/import/html
 docker compose run --rm api criminal-db ingest --criminal-only
 docker compose run --rm api criminal-db embed --scope all
 docker compose run --rm api criminal-db search "section 8 charter" --type hybrid
@@ -103,6 +106,7 @@ Compose substitutes `${VAR:-default}` into the file below.
 | `CRIMINAL_DB_HOST_PORT` | `8765` | Host port published to the API |
 | `CRIMINAL_DB_DATA_DIR` | `./data` | Host path → `/app/data` (HTML, manifest, import) |
 | `CRIMINAL_DB_DB_DIR` | `./db` | Host path → `/app/db` (SQLite files) |
+| `CRIMINAL_DB_CASE_DB` | `/app/db/criminal.db` | Unified case database inside container |
 | `CRIMINAL_DB_MODELS_DIR` | `./models` | Host path → `/app/models` (embedding cache) |
 | `CRIMINAL_DB_API_HOST` | `0.0.0.0` | Bind address inside the container |
 | `CRIMINAL_DB_API_PORT` | `8765` | Listen port inside the container |
@@ -151,6 +155,7 @@ services:
       CRIMINAL_DB_USER_AGENT: ${CRIMINAL_DB_USER_AGENT:-}
       CRIMINAL_DB_DELAY_MIN: ${CRIMINAL_DB_DELAY_MIN:-5.0}
       CRIMINAL_DB_DELAY_MAX: ${CRIMINAL_DB_DELAY_MAX:-9.0}
+      CRIMINAL_DB_CASE_DB: ${CRIMINAL_DB_CASE_DB:-/app/db/criminal.db}
 
     volumes:
       - ${CRIMINAL_DB_DATA_DIR:-./data}:/app/data
@@ -184,6 +189,7 @@ services:
       CRIMINAL_DB_USER_AGENT: ${CRIMINAL_DB_USER_AGENT:-}
       CRIMINAL_DB_DELAY_MIN: ${CRIMINAL_DB_DELAY_MIN:-5.0}
       CRIMINAL_DB_DELAY_MAX: ${CRIMINAL_DB_DELAY_MAX:-9.0}
+      CRIMINAL_DB_CASE_DB: ${CRIMINAL_DB_CASE_DB:-/app/db/criminal.db}
     volumes:
       - ${CRIMINAL_DB_DATA_DIR:-./data}:/app/data
       - ${CRIMINAL_DB_DB_DIR:-./db}:/app/db
@@ -207,8 +213,11 @@ Mount only corpus you have rights to use. See
 ## Quick start
 
 ```bash
-# Initialise databases, data/ layout, and catalog manifest
+# Initialise databases, data/ layout, and catalog manifest (creates db/criminal.db)
 criminal-db init
+
+# Optional: build a starter db/criminal.db from fixtures (see fixtures/seed_corpus/)
+criminal-db seed-build --install
 
 # Offline workflow (recommended): copy HTML into data/cases/… then ingest
 cp my-case.html data/cases/fulltext/
@@ -220,13 +229,13 @@ criminal-db parse path/to/case.html
 # Harvest (only when permitted; blocked by CanLII robots.txt by default)
 criminal-db harvest URL --save-html data/raw
 
-# Embeddings + search (searches both db/fulltext.db and db/headnotes.db)
+# Embeddings + search (default: db/criminal.db)
 criminal-db embed
 criminal-db search "section 8 charter unreasonable search" --type hybrid
 
 # Catalog and stats
 criminal-db index                     # list manifest entries
-criminal-db analyze                   # per-store + total counts
+criminal-db analyze                   # case DB + statutes stats
 ```
 
 ### LLM / agent use
@@ -238,16 +247,18 @@ criminal-db --json ingest
 criminal-db --json search "voir dire" --type hybrid --limit 5
 ```
 
-## Dual databases
+## Case database
 
-| Database | Path | Contents |
-|----------|------|----------|
-| Full text | `db/fulltext.db` | Numbered decision paragraphs |
-| Headnotes | `db/headnotes.db` | Summary / headnote paragraphs |
+By default all cases live in one SQLite file, **`db/criminal.db`**, with a
+`corpus` column distinguishing fulltext vs headnote paragraphs.
 
-`parse`, `ingest`, and `harvest` (without `--db`) store each case in the
-database matching its parsed `corpus`. `search`, `embed`, and `analyze`
-(without `--db`) operate on **both** files and merge results.
+`parse`, `ingest`, and `harvest` (without `--db`) store each case in that
+file. `search`, `embed`, and `analyze` (without `--db`) query it once.
+
+Legacy split layout (two files) is still supported when **both**
+`CRIMINAL_DB_FULLTEXT_DB` and `CRIMINAL_DB_HEADNOTES_DB` point at different
+paths. Set a single legacy var to use one file at that path. Override the
+unified default with `CRIMINAL_DB_CASE_DB`.
 
 ## Criminal Code (statutes)
 
@@ -336,15 +347,15 @@ criminal_db/
     db/
         schema.py         # DDL (cases, paragraphs, FTS5, vec0)
         operations.py     # Single-database facade
-        router.py         # Dual-DB routing + unified search
+        router.py         # Case DB routing + multi-store search
     harvester/            # CanLII fetch + parse + listing links
 data/
     cases/{fulltext,headnotes}/   # Offline HTML (gitignored)
     index/manifest.json           # Ingest catalog
     raw/                          # Optional harvest output
 db/
-    fulltext.db
-    headnotes.db
+    criminal.db
+    statutes.db
 docs/
     AGENTS.md             # LLM / automation guide
     COPYRIGHT_AND_REDISTRIBUTION.md

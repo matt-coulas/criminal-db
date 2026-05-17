@@ -17,16 +17,17 @@ def _invoke(args, **kwargs):
 
 
 def test_init_creates_databases(tmp_path: Path, monkeypatch, fixtures_dir):
+    case_db = tmp_path / "criminal.db"
     monkeypatch.setattr("criminal_db.config.DB_DIR", tmp_path)
-    monkeypatch.setattr("criminal_db.config.HEADNOTES_DB", tmp_path / "headnotes.db")
-    monkeypatch.setattr("criminal_db.config.FULLTEXT_DB", tmp_path / "fulltext.db")
+    monkeypatch.setattr("criminal_db.config.CASE_DB", case_db)
+    monkeypatch.setattr("criminal_db.config.HEADNOTES_DB", case_db)
+    monkeypatch.setattr("criminal_db.config.FULLTEXT_DB", case_db)
     monkeypatch.setattr("criminal_db.config.STATUTES_DB", tmp_path / "statutes.db")
-    monkeypatch.setattr("criminal_db.config.DEFAULT_DB", tmp_path / "fulltext.db")
+    monkeypatch.setattr("criminal_db.config.DEFAULT_DB", case_db)
 
     result = _invoke(["init"])
     assert result.exit_code == 0, result.output
-    assert (tmp_path / "headnotes.db").exists()
-    assert (tmp_path / "fulltext.db").exists()
+    assert case_db.exists()
     assert (tmp_path / "statutes.db").exists()
 
 

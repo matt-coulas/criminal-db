@@ -25,8 +25,9 @@ def test_build_seed_database_from_fixtures(tmp_path: Path, fixtures_dir: Path):
     assert result.source_files >= 1
     assert result.html_files >= 1
     assert result.report.ok >= 1
-    assert result.fulltext_db.is_file()
-    assert result.headnotes_db.is_file()
+    assert result.case_db.is_file()
+    assert result.fulltext_db == result.case_db
+    assert result.headnotes_db == result.case_db
     assert result.manifest_path.is_file()
 
 
@@ -70,5 +71,22 @@ def test_install_seed_database(tmp_path: Path, fixtures_dir: Path):
     build_seed_database(incoming, db_dir=seed_db, data_dir=tmp_path / "data", write_md=False)
     target = tmp_path / "db"
     copied = install_seed_database(seed_db, target_db_dir=target)
-    assert (target / "fulltext.db").is_file()
+    assert (target / "criminal.db").is_file()
     assert len(copied) >= 1
+
+
+def test_build_seed_database_custom_db_path(tmp_path: Path, fixtures_dir: Path):
+    incoming = fixtures_dir.parent / "seed_corpus" / "incoming"
+    if not any(incoming.rglob("*.html")):
+        pytest.skip("seed_corpus/incoming has no HTML")
+
+    out = tmp_path / "custom.db"
+    result = build_seed_database(
+        incoming,
+        db_dir=tmp_path,
+        case_db=out,
+        data_dir=tmp_path / "data",
+        write_md=False,
+    )
+    assert result.case_db == out.resolve()
+    assert out.is_file()
