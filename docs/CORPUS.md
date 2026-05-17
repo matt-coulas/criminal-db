@@ -19,10 +19,11 @@ Creates:
 - `data/cases/{fulltext,headnotes}/`, `data/raw/`, `data/statutes/criminal_code/`
 - `data/index/manifest.json`, `data/index/overrides.yaml`
 
-Optional starter DB from synthetic fixtures:
+Optional: build `db/criminal.db` from HTML you place under
+`fixtures/seed_corpus/incoming/` (see `fixtures/seed_corpus/README.md`):
 
 ```bash
-criminal-db seed-build --install   # writes db/criminal.db from fixtures/seed_corpus/
+criminal-db seed-build -i fixtures/seed_corpus/incoming --install
 ```
 
 ## 2. Case law (offline HTML)

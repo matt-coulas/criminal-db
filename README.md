@@ -78,10 +78,7 @@ Use `image:` instead of `build:` in the compose example below.
 ### Corpus workflow in Docker
 
 ```bash
-# Optional: starter DB from synthetic fixtures (no HTML required)
-docker compose run --rm api criminal-db seed-build --install
-
-# Or copy permitted HTML into ./data/cases/fulltext or ./data/import/html
+# Copy permitted HTML into ./data/cases/fulltext or ./data/import/html
 docker compose run --rm api criminal-db ingest --criminal-only
 docker compose run --rm api criminal-db embed --scope all
 docker compose run --rm api criminal-db search "section 8 charter" --type hybrid
@@ -215,9 +212,6 @@ Mount only corpus you have rights to use. See
 ```bash
 # Initialise databases, data/ layout, and catalog manifest (creates db/criminal.db)
 criminal-db init
-
-# Optional: build a starter db/criminal.db from fixtures (see fixtures/seed_corpus/)
-criminal-db seed-build --install
 
 # Offline workflow (recommended): copy HTML into data/cases/… then ingest
 cp my-case.html data/cases/fulltext/

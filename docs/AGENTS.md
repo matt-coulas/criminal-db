@@ -51,8 +51,8 @@ or from path segments (`data/cases/fulltext/` vs `headnotes/`). `search` and
 | `--db path/to/file.db` | Single-file mode for one command |
 | `CRIMINAL_DB_FULLTEXT_DB` + `CRIMINAL_DB_HEADNOTES_DB` (different paths) | Legacy split: two SQLite files, merged search |
 
-For a starter corpus without your own HTML, use
-`criminal-db seed-build --install` (see `fixtures/seed_corpus/README.md`).
+To build a case DB from local HTML/PDF, use `criminal-db seed-build -i …`
+(see `fixtures/seed_corpus/README.md`).
 
 ## Catalog manifest
 

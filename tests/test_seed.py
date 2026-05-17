@@ -10,14 +10,10 @@ from criminal_db.seed import build_seed_database, install_seed_database
 
 
 def test_build_seed_database_from_fixtures(tmp_path: Path, fixtures_dir: Path):
-    incoming = fixtures_dir.parent / "seed_corpus" / "incoming"
-    if not any(incoming.rglob("*.html")):
-        pytest.skip("seed_corpus/incoming has no HTML")
-
     db_dir = tmp_path / "db"
     data_dir = tmp_path / "data"
     result = build_seed_database(
-        incoming,
+        fixtures_dir,
         db_dir=db_dir,
         data_dir=data_dir,
         write_md=False,
@@ -63,12 +59,10 @@ def test_build_seed_database_includes_pdf(tmp_path: Path):
 
 
 def test_install_seed_database(tmp_path: Path, fixtures_dir: Path):
-    incoming = fixtures_dir.parent / "seed_corpus" / "incoming"
-    if not any(incoming.rglob("*.html")):
-        pytest.skip("seed_corpus/incoming has no HTML")
-
     seed_db = tmp_path / "seed"
-    build_seed_database(incoming, db_dir=seed_db, data_dir=tmp_path / "data", write_md=False)
+    build_seed_database(
+        fixtures_dir, db_dir=seed_db, data_dir=tmp_path / "data", write_md=False
+    )
     target = tmp_path / "db"
     copied = install_seed_database(seed_db, target_db_dir=target)
     assert (target / "criminal.db").is_file()
@@ -76,13 +70,9 @@ def test_install_seed_database(tmp_path: Path, fixtures_dir: Path):
 
 
 def test_build_seed_database_custom_db_path(tmp_path: Path, fixtures_dir: Path):
-    incoming = fixtures_dir.parent / "seed_corpus" / "incoming"
-    if not any(incoming.rglob("*.html")):
-        pytest.skip("seed_corpus/incoming has no HTML")
-
     out = tmp_path / "custom.db"
     result = build_seed_database(
-        incoming,
+        fixtures_dir,
         db_dir=tmp_path,
         case_db=out,
         data_dir=tmp_path / "data",

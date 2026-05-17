@@ -1,6 +1,6 @@
 # Seed corpus (starter database)
 
-Drop **CanLII-style HTML** or **decision PDFs** here to build a reusable test
+Drop **CanLII-style HTML** or **decision PDFs** here to build a reusable local
 database (`criminal-db[pdf]` / PyMuPDF required for PDF).
 
 ## Layout
@@ -10,9 +10,6 @@ Any nested tree works; the ingest step scans recursively. Recommended:
 ```text
 incoming/
   uploads/            # put your HTML or PDF here (gitignored)
-  SCC/2024/…          # synthetic smoke-test samples (in repo)
-  FCA/2023/…
-  real/ONCA/2022/…
   fulltext/…          # optional: path segment sets corpus=fulltext
   headnotes/…         # optional: path segment sets corpus=headnote
 ```
@@ -44,7 +41,6 @@ docker compose up -d api
 
 Or mount `db/seed` explicitly in `compose.yaml` volume paths.
 
-## Starter files
-
-The repo may ship a few **synthetic** HTML files under `incoming/` for CI and
-local smoke tests. Replace or add your licensed research corpus in the same tree.
+The repo does **not** ship case HTML in this tree. Add your licensed corpus under
+`incoming/uploads/` (or any subtree). Parser smoke tests use synthetic HTML under
+`tests/fixtures/` only.
